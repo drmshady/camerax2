@@ -45,6 +45,14 @@ class SessionManager(private val context: Context) {
         return File(imagesDirectory, imageFileName)
     }
 
+    fun hasSession(): Boolean {
+        return this::sessionDirectory.isInitialized && sessionDirectory.exists()
+    }
+
+    fun getSessionName(): String {
+        return sessionName
+    }
+
     fun getSessionInfo(): Map<String, Any> {
         return mapOf(
             "sessionStartTime" to SimpleDateFormat("yyyy-MM-dd HH:mm:ss", Locale.US).format(Date(sessionStartTime)),

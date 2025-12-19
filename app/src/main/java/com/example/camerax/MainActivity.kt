@@ -37,6 +37,11 @@ class MainActivity : AppCompatActivity() {
     private lateinit var cameraExecutor: ExecutorService
     private lateinit var sessionManager: SessionManager
     private lateinit var manifestWriter: ManifestWriter
+
+    // Step 7: export session to zip
+    private lateinit var zipExporter: ZipExporter
+    @Volatile private var isExporting: Boolean = false
+
     private var cameraController: CameraController? = null
 
     private val captureResolution = Size(1920, 1080)
@@ -72,6 +77,7 @@ class MainActivity : AppCompatActivity() {
         sessionManager = SessionManager(this)
         manifestWriter = ManifestWriter()
         cameraExecutor = Executors.newSingleThreadExecutor()
+        zipExporter = ZipExporter(this)
 
         // Switch affects capture enablement
         viewBinding.blockCaptureSwitch.setOnCheckedChangeListener { _, _ ->
@@ -108,12 +114,13 @@ class MainActivity : AppCompatActivity() {
             updateLockStatusUi()
         }
 
+        viewBinding.exportSessionButton.setOnClickListener { exportSession() }
+
         viewBinding.captureButton.setOnClickListener { takePhoto() }
 
         viewBinding.lockButton.setOnClickListener {
             cameraController?.lockForPhotogrammetry(settleMs = 1500L)
             updateLockStatusUi()
-            // update again after settle+lock completes
             viewBinding.lockButton.postDelayed({ updateLockStatusUi() }, 2000L)
         }
 
@@ -128,7 +135,6 @@ class MainActivity : AppCompatActivity() {
             return
         }
 
-        // Step 5: block capture unless OK (if enabled)
         if (viewBinding.blockCaptureSwitch.isChecked && lastQualityStatus != QualityStatus.OK) {
             Toast.makeText(this, "Image quality not OK: $lastQualityStatus", Toast.LENGTH_SHORT).show()
             return
@@ -185,6 +191,40 @@ class MainActivity : AppCompatActivity() {
         )
     }
 
+    private fun exportSession() {
+        if (!sessionManager.hasSession()) {
+            Toast.makeText(this, "No session to export.", Toast.LENGTH_SHORT).show()
+            return
+        }
+        if (isExporting) return
+
+        val sessionDir = sessionManager.getSessionDirectory()
+
+        isExporting = true
+        updateExportEnabled()
+
+        cameraExecutor.execute {
+            try {
+                val zipFile = zipExporter.exportSessionToZip(sessionDir)
+                runOnUiThread {
+                    Toast.makeText(this, "Exported: ${zipFile.absolutePath}", Toast.LENGTH_LONG).show()
+                }
+            } catch (t: Throwable) {
+                Log.e(TAG, "Export failed: ${t.message}", t)
+                runOnUiThread {
+                    Toast.makeText(this, "Export failed: ${t.message}", Toast.LENGTH_LONG).show()
+                }
+            } finally {
+                isExporting = false
+                runOnUiThread { updateExportEnabled() }
+            }
+        }
+    }
+
+    private fun updateExportEnabled() {
+        viewBinding.exportSessionButton.isEnabled = sessionManager.hasSession() && !isExporting
+    }
+
     private fun writeManifest() {
         val sessionInfo = sessionManager.getSessionInfo().toMutableMap()
         sessionInfo["chosenResolution"] = "${captureResolution.width}x${captureResolution.height}"
@@ -198,17 +238,14 @@ class MainActivity : AppCompatActivity() {
         cameraProviderFuture.addListener({
             val cameraProvider: ProcessCameraProvider = cameraProviderFuture.get()
 
-            // Preview + Camera2 session callback (for resultStore)
             val previewBuilder = Preview.Builder()
             Camera2Interop.Extender(previewBuilder)
                 .setSessionCaptureCallback(resultStore.sessionCallback)
 
             val preview = previewBuilder.build().also {
-                // ✅ correct ID in your layout: viewFinder
                 it.setSurfaceProvider(viewBinding.viewFinder.surfaceProvider)
             }
 
-            // ImageCapture + Camera2 session callback (keeps callback alive during capture)
             val imageCaptureBuilder = ImageCapture.Builder()
                 .setTargetResolution(captureResolution)
 
@@ -217,7 +254,6 @@ class MainActivity : AppCompatActivity() {
 
             imageCapture = imageCaptureBuilder.build()
 
-            // ImageAnalysis (Step 5)
             val analysis = ImageAnalysis.Builder()
                 .setBackpressureStrategy(ImageAnalysis.STRATEGY_KEEP_ONLY_LATEST)
                 .build()
@@ -316,6 +352,7 @@ class MainActivity : AppCompatActivity() {
         viewBinding.endSessionButton.isEnabled = active
         viewBinding.lockButton.isEnabled = active
         updateCaptureEnabled()
+        updateExportEnabled()
     }
 
     private fun updateCaptureEnabled() {
