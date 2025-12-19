@@ -16,17 +16,19 @@ data class ImageSidecarMetadata(
     val exposureFlags: List<String>,
     val qualityStatus: String,
     val lockModeUsed: String,
-    val torchState: String
+    val torchState: String,
+
+    // session context
+    val sessionType: String,
+    val sessionName: String,
+    val doctorName: String? = null,
+    val patientName: String? = null,
+    val patientId: String? = null,
+    val calibrationTargetDistanceCm: Int? = null
 ) {
     val timestampIso: String = Instant.ofEpochMilli(timestampMs).toString()
 }
 
-/**
- * Deterministic sidecar writer:
- * - stable key order
- * - atomic-ish write via .tmp then rename
- * - NO camera re-query (pure IO)
- */
 class ImageSidecarWriter {
 
     fun writeSidecarJson(imageFile: File, meta: ImageSidecarMetadata) {
@@ -39,7 +41,6 @@ class ImageSidecarWriter {
 
             if (jsonFile.exists()) jsonFile.delete()
             if (!tmpFile.renameTo(jsonFile)) {
-                // fallback
                 jsonFile.writeText(text, Charsets.UTF_8)
                 tmpFile.delete()
             }
@@ -50,67 +51,89 @@ class ImageSidecarWriter {
     }
 
     private fun buildJson(m: ImageSidecarMetadata): String {
-        val sb = StringBuilder(512)
+        val sb = StringBuilder(1200)
         sb.append("{\n")
-        kv(sb, "timestampMs", m.timestampMs, comma = true)
-        kv(sb, "timestampIso", m.timestampIso, comma = true)
-        kv(sb, "filename", m.filename, comma = true)
-        kv(sb, "ISO", m.iso, comma = true)
-        kv(sb, "shutterNs", m.shutterNs, comma = true)
-        kv(sb, "focusDistanceDiopters", m.focusDistanceDiopters, comma = true)
-        kv(sb, "distanceEstimateCm", m.distanceEstimateCm, comma = true)
-        kv(sb, "blurScore", m.blurScore, comma = true)
+
+        kvLong(sb, "timestampMs", m.timestampMs, comma = true)
+        kvString(sb, "timestampIso", m.timestampIso, comma = true)
+        kvString(sb, "filename", m.filename, comma = true)
+
+        kvInt(sb, "ISO", m.iso, comma = true)
+        kvLongNullable(sb, "shutterNs", m.shutterNs, comma = true)
+        kvFloat(sb, "focusDistanceDiopters", m.focusDistanceDiopters, comma = true)
+        kvDouble(sb, "distanceEstimateCm", m.distanceEstimateCm, comma = true)
+        kvDoubleNonNull(sb, "blurScore", m.blurScore, comma = true)
+
         array(sb, "exposureFlags", m.exposureFlags, comma = true)
-        kv(sb, "qualityStatus", m.qualityStatus, comma = true)
-        kv(sb, "lockModeUsed", m.lockModeUsed, comma = true)
-        kv(sb, "torchState", m.torchState, comma = false)
+        kvString(sb, "qualityStatus", m.qualityStatus, comma = true)
+        kvString(sb, "lockModeUsed", m.lockModeUsed, comma = true)
+        kvString(sb, "torchState", m.torchState, comma = true)
+
+        kvString(sb, "sessionType", m.sessionType, comma = true)
+        kvString(sb, "sessionName", m.sessionName, comma = true)
+
+        // optional clinical info (null for calibration)
+        kvNullableString(sb, "doctorName", m.doctorName, comma = true)
+        kvNullableString(sb, "patientName", m.patientName, comma = true)
+        kvNullableString(sb, "patientId", m.patientId, comma = true)
+
+        kvInt(sb, "calibrationTargetDistanceCm", m.calibrationTargetDistanceCm, comma = false)
+
         sb.append("\n}")
         return sb.toString()
     }
 
-    private fun kv(sb: StringBuilder, key: String, value: String, comma: Boolean) {
+    // ---- Writers (unique JVM signatures) ----
+
+    private fun kvString(sb: StringBuilder, key: String, value: String, comma: Boolean) {
         sb.append("  \"").append(esc(key)).append("\": \"").append(esc(value)).append("\"")
         if (comma) sb.append(",")
         sb.append("\n")
     }
 
-    private fun kv(sb: StringBuilder, key: String, value: Int?, comma: Boolean) {
+    private fun kvNullableString(sb: StringBuilder, key: String, value: String?, comma: Boolean) {
         sb.append("  \"").append(esc(key)).append("\": ")
-        sb.append(value?.toString() ?: "null")
+        if (value == null) sb.append("null")
+        else sb.append("\"").append(esc(value)).append("\"")
         if (comma) sb.append(",")
         sb.append("\n")
     }
 
-    private fun kv(sb: StringBuilder, key: String, value: Long?, comma: Boolean) {
-        sb.append("  \"").append(esc(key)).append("\": ")
-        sb.append(value?.toString() ?: "null")
+    private fun kvInt(sb: StringBuilder, key: String, value: Int?, comma: Boolean) {
+        sb.append("  \"").append(esc(key)).append("\": ").append(value?.toString() ?: "null")
         if (comma) sb.append(",")
         sb.append("\n")
     }
 
-    private fun kv(sb: StringBuilder, key: String, value: Float?, comma: Boolean) {
+    private fun kvLongNullable(sb: StringBuilder, key: String, value: Long?, comma: Boolean) {
+        sb.append("  \"").append(esc(key)).append("\": ").append(value?.toString() ?: "null")
+        if (comma) sb.append(",")
+        sb.append("\n")
+    }
+
+    private fun kvLong(sb: StringBuilder, key: String, value: Long, comma: Boolean) {
+        sb.append("  \"").append(esc(key)).append("\": ").append(value)
+        if (comma) sb.append(",")
+        sb.append("\n")
+    }
+
+    private fun kvFloat(sb: StringBuilder, key: String, value: Float?, comma: Boolean) {
         sb.append("  \"").append(esc(key)).append("\": ")
         sb.append(value?.let { String.format(Locale.US, "%.6f", it) } ?: "null")
         if (comma) sb.append(",")
         sb.append("\n")
     }
 
-    private fun kv(sb: StringBuilder, key: String, value: Double?, comma: Boolean) {
+    private fun kvDouble(sb: StringBuilder, key: String, value: Double?, comma: Boolean) {
         sb.append("  \"").append(esc(key)).append("\": ")
         sb.append(value?.let { String.format(Locale.US, "%.6f", it) } ?: "null")
         if (comma) sb.append(",")
         sb.append("\n")
     }
 
-    private fun kv(sb: StringBuilder, key: String, value: Double, comma: Boolean) {
+    private fun kvDoubleNonNull(sb: StringBuilder, key: String, value: Double, comma: Boolean) {
         sb.append("  \"").append(esc(key)).append("\": ")
         sb.append(String.format(Locale.US, "%.6f", value))
-        if (comma) sb.append(",")
-        sb.append("\n")
-    }
-
-    private fun kv(sb: StringBuilder, key: String, value: Long, comma: Boolean) {
-        sb.append("  \"").append(esc(key)).append("\": ").append(value)
         if (comma) sb.append(",")
         sb.append("\n")
     }

@@ -12,28 +12,32 @@ import java.util.zip.ZipEntry
 import java.util.zip.ZipOutputStream
 
 /**
- * Step 7: Export an existing SESSION_... folder into SESSION_....zip.
+ * Export an existing session folder into a ZIP in a shared/export subfolder.
  *
- * Output location:
- *   <app external files>/shared/export/SESSION_....zip
- *
- * - Safe zip entry names (prevents path traversal entries)
- * - Deterministic ordering (sorted by relative path)
+ * - Deterministic ordering (sorted relative paths)
+ * - Safe entry names (no traversal)
  * - Writes to .tmp then renames
+ * - If zip name exists, appends _01, _02, ...
  */
 class ZipExporter(private val context: Context) {
 
-    fun exportSessionToZip(sessionDir: File): File {
+    fun exportSessionToZip(sessionDir: File, sessionType: SessionType): File {
         require(sessionDir.exists() && sessionDir.isDirectory) {
             "Session directory does not exist: ${sessionDir.absolutePath}"
         }
 
         val baseDir = context.getExternalFilesDir(null) ?: context.filesDir
-        val exportDir = File(File(baseDir, "shared"), "export").apply { mkdirs() }
+        val exportRoot = File(baseDir, "shared/export").apply { mkdirs() }
 
-        val zipName = sessionDir.name + ".zip"
-        val zipFile = File(exportDir, zipName)
-        val tmpFile = File(exportDir, "$zipName.tmp")
+        val subFolder = when (sessionType) {
+            SessionType.CALIBRATION -> "calibration"
+            SessionType.CAPTURE -> "capture"
+        }
+        val exportDir = File(exportRoot, subFolder).apply { mkdirs() }
+
+        val baseZipName = sessionDir.name + ".zip"
+        val zipFile = uniqueFile(exportDir, baseZipName)
+        val tmpFile = File(exportDir, zipFile.name + ".tmp")
 
         val basePath = sessionDir.toPath()
         val files = sessionDir.walkTopDown()
@@ -43,8 +47,8 @@ class ZipExporter(private val context: Context) {
 
         ZipOutputStream(BufferedOutputStream(FileOutputStream(tmpFile))).use { zos ->
             zos.setLevel(Deflater.BEST_COMPRESSION)
-
             val buffer = ByteArray(DEFAULT_BUFFER)
+
             for (f in files) {
                 val rel = basePath.relativize(f.toPath()).toString().replace(File.separatorChar, '/')
                 val entryName = "${sessionDir.name}/$rel"
@@ -82,9 +86,19 @@ class ZipExporter(private val context: Context) {
         return zipFile
     }
 
+    private fun uniqueFile(dir: File, filename: String): File {
+        val base = filename.removeSuffix(".zip")
+        var candidate = File(dir, filename)
+        var i = 1
+        while (candidate.exists()) {
+            candidate = File(dir, "${base}_${String.format("%02d", i)}.zip")
+            i++
+        }
+        return candidate
+    }
+
     private fun isSafeEntryName(name: String): Boolean {
         if (name.startsWith("/")) return false
-        if (name.contains("\\\\")) return false
         val parts = name.split('/')
         return parts.none { it == ".." || it.isEmpty() }
     }
