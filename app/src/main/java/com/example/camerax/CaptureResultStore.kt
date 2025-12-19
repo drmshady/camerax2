@@ -5,6 +5,12 @@ import android.hardware.camera2.CaptureResult
 import android.hardware.camera2.TotalCaptureResult
 import java.util.concurrent.atomic.AtomicReference
 
+data class CaptureSnapshot(
+    val iso: Int?,
+    val shutterNs: Long?,
+    val focusDistanceDiopters: Float?
+)
+
 class CaptureResultStore {
     private val isoRef = AtomicReference<Int?>(null)
     private val shutterNsRef = AtomicReference<Long?>(null)
@@ -26,4 +32,12 @@ class CaptureResultStore {
     fun latestIso(): Int? = isoRef.get()
     fun latestShutterNs(): Long? = shutterNsRef.get()
     fun latestFocusDistance(): Float? = focusDistRef.get()
+
+    // Step 6: immutable snapshot (no re-querying camera)
+    fun snapshot(): CaptureSnapshot =
+        CaptureSnapshot(
+            iso = isoRef.get(),
+            shutterNs = shutterNsRef.get(),
+            focusDistanceDiopters = focusDistRef.get()
+        )
 }

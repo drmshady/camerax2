@@ -49,6 +49,20 @@ class MainActivity : AppCompatActivity() {
 
     // Step 5 gating state
     private var lastQualityStatus: QualityStatus = QualityStatus.OK
+    private var lastQualityResult: QualityResult = QualityResult(
+        status = QualityStatus.OK,
+        blurScore = 0.0,
+        overPercent = 0.0,
+        underPercent = 0.0,
+        distanceCm = null
+    )
+
+    // Step 6 writer
+    private val sidecarWriter = ImageSidecarWriter()
+
+    // Must match QualityAnalyzer defaults (keep deterministic)
+    private val overThresh = 0.02
+    private val underThresh = 0.02
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -105,15 +119,7 @@ class MainActivity : AppCompatActivity() {
 
         updateUi()
         updateLockStatusUi()
-        updateQualityUi(
-            QualityResult(
-                status = QualityStatus.OK,
-                blurScore = 0.0,
-                overPercent = 0.0,
-                underPercent = 0.0,
-                distanceCm = null
-            )
-        )
+        updateQualityUi(lastQualityResult)
     }
 
     private fun takePhoto() {
@@ -132,6 +138,30 @@ class MainActivity : AppCompatActivity() {
         val photoFile = sessionManager.getNextImageFile()
         val outputOptions = ImageCapture.OutputFileOptions.Builder(photoFile).build()
 
+        // Step 6: snapshot all metadata NOW (no re-querying camera)
+        val tsMs = System.currentTimeMillis()
+        val cap = resultStore.snapshot()
+        val q = lastQualityResult
+
+        val exposureFlags = mutableListOf<String>().apply {
+            if (q.overPercent > overThresh) add("OVER")
+            if (q.underPercent > underThresh) add("UNDER")
+        }
+
+        val meta = ImageSidecarMetadata(
+            timestampMs = tsMs,
+            filename = photoFile.name,
+            iso = cap.iso,
+            shutterNs = cap.shutterNs,
+            focusDistanceDiopters = cap.focusDistanceDiopters,
+            distanceEstimateCm = q.distanceCm,
+            blurScore = q.blurScore,
+            exposureFlags = exposureFlags,
+            qualityStatus = q.status.name,
+            lockModeUsed = cameraController?.lockModeUsed ?: "fallback",
+            torchState = if (viewBinding.torchSwitch.isChecked) "ON" else "OFF"
+        )
+
         imageCapture.takePicture(
             outputOptions,
             ContextCompat.getMainExecutor(this),
@@ -143,6 +173,12 @@ class MainActivity : AppCompatActivity() {
                 override fun onImageSaved(output: ImageCapture.OutputFileResults) {
                     Toast.makeText(baseContext, "Saved: ${photoFile.absolutePath}", Toast.LENGTH_SHORT).show()
                     Log.d(TAG, "Saved: ${photoFile.absolutePath}")
+
+                    // Step 6: write sidecar in background (non-blocking)
+                    cameraExecutor.execute {
+                        sidecarWriter.writeSidecarJson(photoFile, meta)
+                    }
+
                     writeManifest()
                 }
             }
@@ -168,6 +204,7 @@ class MainActivity : AppCompatActivity() {
                 .setSessionCaptureCallback(resultStore.sessionCallback)
 
             val preview = previewBuilder.build().also {
+                // ✅ correct ID in your layout: viewFinder
                 it.setSurfaceProvider(viewBinding.viewFinder.surfaceProvider)
             }
 
@@ -256,6 +293,7 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun updateQualityUi(result: QualityResult) {
+        lastQualityResult = result
         lastQualityStatus = result.status
 
         viewBinding.qualityStatusText.text = when (result.status) {

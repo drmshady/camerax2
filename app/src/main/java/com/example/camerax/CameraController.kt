@@ -35,6 +35,9 @@ class CameraController(
     @Volatile var wbStatus: String = "AUTO"
     @Volatile var afStatus: String = "AUTO"
 
+    // Step 6 needs this
+    @Volatile var lockModeUsed: String = "fallback"
+
     private val camera2 = Camera2CameraControl.from(camera.cameraControl)
 
     fun lockForPhotogrammetry(settleMs: Long = 1500L) {
@@ -55,9 +58,10 @@ class CameraController(
                 // 4) Lock exposure + WB using those values if possible
                 applyExposureAndWbLock(autoShutter, autoIso).await()
 
-                Log.d(TAG, "Lock done: AE=$aeStatus WB=$wbStatus AF=$afStatus")
+                Log.d(TAG, "Lock done: AE=$aeStatus WB=$wbStatus AF=$afStatus mode=$lockModeUsed")
             } catch (t: Throwable) {
                 Log.e(TAG, "Lock failed: ${t.message}", t)
+                lockModeUsed = "fallback"
             }
         }
     }
@@ -66,6 +70,7 @@ class CameraController(
         aeStatus = "AUTO"
         wbStatus = "AUTO"
         afStatus = "AUTO"
+        lockModeUsed = "fallback"
         camera.cameraControl.cancelFocusAndMetering()
         return setAllAuto()
     }
@@ -127,19 +132,21 @@ class CameraController(
             b.setCaptureRequestOption(CaptureRequest.CONTROL_AE_LOCK, false)
 
             aeStatus = "MANUAL from AUTO (ISO=$isoClamped, t=$shutterClamped)"
+            lockModeUsed = "manual"
         } else if (aeLockAvailable) {
             b.setCaptureRequestOption(CaptureRequest.CONTROL_AE_MODE, CameraMetadata.CONTROL_AE_MODE_ON)
             b.setCaptureRequestOption(CaptureRequest.CONTROL_AE_LOCK, true)
 
             aeStatus = "AE_LOCK (no manual)"
+            lockModeUsed = "AE_LOCK"
         } else {
             aeStatus = "AUTO (no lock available)"
+            lockModeUsed = "fallback"
         }
 
         // ---- White balance ----
         val awbLockAvailable = characteristics.get(CameraCharacteristics.CONTROL_AWB_LOCK_AVAILABLE) == true
         if (awbLockAvailable) {
-            // Keep AWB_MODE_AUTO, lock it.
             b.setCaptureRequestOption(CaptureRequest.CONTROL_AWB_MODE, CameraMetadata.CONTROL_AWB_MODE_AUTO)
             b.setCaptureRequestOption(CaptureRequest.CONTROL_AWB_LOCK, true)
             wbStatus = "AWB_LOCK"
