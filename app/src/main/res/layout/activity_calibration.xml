@@ -64,6 +64,16 @@
                 android:textColor="@android:color/white"
                 android:alpha="0.9" />
 
+            <!-- Step 8: Marker counter (stub) -->
+            <TextView
+                android:id="@+id/markersText"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="6dp"
+                android:text="Markers detected: N/A"
+                android:textColor="@android:color/white"
+                android:alpha="0.9" />
+
             <LinearLayout
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"

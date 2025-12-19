@@ -47,6 +47,9 @@ class CaptureActivity : AppCompatActivity() {
     private val resultStore = CaptureResultStore()
     private var cameraController: CameraController? = null
 
+    // Step 8 (stub)
+    private val markerDetector: MarkerDetector = StubMarkerDetector()
+
     private val captureResolution = Size(1920, 1080)
 
     @Volatile private var isExporting: Boolean = false
@@ -112,6 +115,9 @@ class CaptureActivity : AppCompatActivity() {
             updateUi()
             cameraController?.unlockAll()
             updateLockStatusUi()
+
+            markerDetector.reset()
+            updateMarkerUi()
         }
 
         binding.exportSessionButton.setOnClickListener { exportSession() }
@@ -122,6 +128,11 @@ class CaptureActivity : AppCompatActivity() {
         updateUi()
         updateLockStatusUi()
         updateQualityUi(lastQualityResult)
+        updateMarkerUi()
+    }
+
+    private fun updateMarkerUi() {
+        binding.markersText.text = markerDetector.latest().displayText
     }
 
     private fun startSessionFromUi() {
@@ -376,6 +387,9 @@ class CaptureActivity : AppCompatActivity() {
 
         binding.distanceText.text =
             result.distanceCm?.let { "Distance: ~${it.toInt()} cm" } ?: "Distance: N/A"
+
+        // Step 8 stub (N/A for now)
+        updateMarkerUi()
 
         updateCaptureEnabled()
     }

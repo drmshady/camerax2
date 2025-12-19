@@ -48,6 +48,9 @@ class CalibrationActivity : AppCompatActivity() {
     private val resultStore = CaptureResultStore()
     private var cameraController: CameraController? = null
 
+    // Step 8 (stub)
+    private val markerDetector: MarkerDetector = StubMarkerDetector()
+
     private val captureResolution = Size(1920, 1080)
 
     @Volatile private var isExporting: Boolean = false
@@ -84,6 +87,15 @@ class CalibrationActivity : AppCompatActivity() {
         zipExporter = ZipExporter(this)
         cameraExecutor = Executors.newSingleThreadExecutor()
 
+        // Default calibration target distance = 25 cm (only on first open)
+        if (savedInstanceState == null) {
+            val current = binding.targetDistanceEdit.text?.toString()?.trim().orEmpty()
+            if (current.isBlank()) {
+                binding.targetDistanceEdit.setText("25")
+                binding.targetDistanceEdit.setSelection(binding.targetDistanceEdit.text?.length ?: 0)
+            }
+        }
+
         binding.instructionsButton.setOnClickListener {
             startActivity(Intent(this, InstructionsActivity::class.java))
         }
@@ -117,6 +129,9 @@ class CalibrationActivity : AppCompatActivity() {
             updateUi()
             cameraController?.unlockAll()
             updateLockStatusUi()
+
+            markerDetector.reset()
+            updateMarkerUi()
         }
 
         binding.exportSessionButton.setOnClickListener { exportSession() }
@@ -128,6 +143,11 @@ class CalibrationActivity : AppCompatActivity() {
         updateLockStatusUi()
         updateQualityUi(lastQualityResult)
         updateCalibrationHint()
+        updateMarkerUi()
+    }
+
+    private fun updateMarkerUi() {
+        binding.markersText.text = markerDetector.latest().displayText
     }
 
     private fun startSessionFromUi() {
@@ -377,6 +397,9 @@ class CalibrationActivity : AppCompatActivity() {
 
         binding.distanceText.text =
             result.distanceCm?.let { "Distance: ~${it.toInt()} cm" } ?: "Distance: N/A"
+
+        // Step 8 stub (N/A for now)
+        updateMarkerUi()
 
         updateCaptureEnabled()
         updateCalibrationHint()
