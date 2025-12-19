@@ -14,7 +14,9 @@ import androidx.appcompat.app.AppCompatActivity
 import androidx.camera.camera2.interop.Camera2CameraInfo
 import androidx.camera.camera2.interop.Camera2Interop
 import androidx.camera.camera2.interop.ExperimentalCamera2Interop
+import androidx.camera.core.Camera
 import androidx.camera.core.CameraSelector
+import androidx.camera.core.ImageAnalysis
 import androidx.camera.core.ImageCapture
 import androidx.camera.core.ImageCaptureException
 import androidx.camera.core.Preview
@@ -27,8 +29,11 @@ import java.util.concurrent.ExecutorService
 import java.util.concurrent.Executors
 
 class MainActivity : AppCompatActivity() {
+
     private lateinit var viewBinding: ActivityMainBinding
     private var imageCapture: ImageCapture? = null
+    private var imageAnalysis: ImageAnalysis? = null
+
     private lateinit var cameraExecutor: ExecutorService
     private lateinit var sessionManager: SessionManager
     private lateinit var manifestWriter: ManifestWriter
@@ -36,8 +41,14 @@ class MainActivity : AppCompatActivity() {
 
     private val captureResolution = Size(1920, 1080)
 
-    // NEW: keeps latest AUTO ISO/shutter/focus from Camera2 CaptureResult
+    // Holds latest AUTO ISO/shutter/focus via Camera2 callback
     private val resultStore = CaptureResultStore()
+
+    // Torch control
+    private var boundCamera: Camera? = null
+
+    // Step 5 gating state
+    private var lastQualityStatus: QualityStatus = QualityStatus.OK
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -47,6 +58,22 @@ class MainActivity : AppCompatActivity() {
         sessionManager = SessionManager(this)
         manifestWriter = ManifestWriter()
         cameraExecutor = Executors.newSingleThreadExecutor()
+
+        // Switch affects capture enablement
+        viewBinding.blockCaptureSwitch.setOnCheckedChangeListener { _, _ ->
+            updateCaptureEnabled()
+        }
+
+        // Torch switch
+        viewBinding.torchSwitch.setOnCheckedChangeListener { _, isChecked ->
+            val cam = boundCamera
+            if (cam == null) {
+                Toast.makeText(this, "Camera not ready", Toast.LENGTH_SHORT).show()
+                viewBinding.torchSwitch.isChecked = false
+                return@setOnCheckedChangeListener
+            }
+            cam.cameraControl.enableTorch(isChecked)
+        }
 
         if (allPermissionsGranted()) {
             startCamera()
@@ -69,7 +96,6 @@ class MainActivity : AppCompatActivity() {
 
         viewBinding.captureButton.setOnClickListener { takePhoto() }
 
-        // Step 4: AUTO settle 1–2s, then lock what AUTO chose
         viewBinding.lockButton.setOnClickListener {
             cameraController?.lockForPhotogrammetry(settleMs = 1500L)
             updateLockStatusUi()
@@ -79,11 +105,26 @@ class MainActivity : AppCompatActivity() {
 
         updateUi()
         updateLockStatusUi()
+        updateQualityUi(
+            QualityResult(
+                status = QualityStatus.OK,
+                blurScore = 0.0,
+                overPercent = 0.0,
+                underPercent = 0.0,
+                distanceCm = null
+            )
+        )
     }
 
     private fun takePhoto() {
         if (!sessionManager.isSessionActive()) {
             Toast.makeText(this, "Please start a session first.", Toast.LENGTH_SHORT).show()
+            return
+        }
+
+        // Step 5: block capture unless OK (if enabled)
+        if (viewBinding.blockCaptureSwitch.isChecked && lastQualityStatus != QualityStatus.OK) {
+            Toast.makeText(this, "Image quality not OK: $lastQualityStatus", Toast.LENGTH_SHORT).show()
             return
         }
 
@@ -115,31 +156,60 @@ class MainActivity : AppCompatActivity() {
     }
 
     @OptIn(ExperimentalCamera2Interop::class)
-
     private fun startCamera() {
         val cameraProviderFuture = ProcessCameraProvider.getInstance(this)
 
         cameraProviderFuture.addListener({
-            val cameraProvider = cameraProviderFuture.get()
+            val cameraProvider: ProcessCameraProvider = cameraProviderFuture.get()
 
+            // Preview + Camera2 session callback (for resultStore)
             val previewBuilder = Preview.Builder()
             Camera2Interop.Extender(previewBuilder)
-                .setSessionCaptureCallback(resultStore.sessionCallback)  // ✅ FIX
+                .setSessionCaptureCallback(resultStore.sessionCallback)
+
             val preview = previewBuilder.build().also {
                 it.setSurfaceProvider(viewBinding.viewFinder.surfaceProvider)
             }
 
+            // ImageCapture + Camera2 session callback (keeps callback alive during capture)
             val imageCaptureBuilder = ImageCapture.Builder()
                 .setTargetResolution(captureResolution)
+
             Camera2Interop.Extender(imageCaptureBuilder)
-                .setSessionCaptureCallback(resultStore.sessionCallback)  // ✅ FIX
+                .setSessionCaptureCallback(resultStore.sessionCallback)
+
             imageCapture = imageCaptureBuilder.build()
+
+            // ImageAnalysis (Step 5)
+            val analysis = ImageAnalysis.Builder()
+                .setBackpressureStrategy(ImageAnalysis.STRATEGY_KEEP_ONLY_LATEST)
+                .build()
+
+            analysis.setAnalyzer(
+                cameraExecutor,
+                QualityAnalyzer(
+                    resultStore = resultStore,
+                    targetFps = 12,
+                    onResult = { result ->
+                        runOnUiThread { updateQualityUi(result) }
+                    }
+                )
+            )
+            imageAnalysis = analysis
 
             val cameraSelector = CameraSelector.DEFAULT_BACK_CAMERA
 
             try {
                 cameraProvider.unbindAll()
-                val camera = cameraProvider.bindToLifecycle(this, cameraSelector, preview, imageCapture)
+                val camera = cameraProvider.bindToLifecycle(
+                    this,
+                    cameraSelector,
+                    preview,
+                    imageCapture,
+                    imageAnalysis
+                )
+
+                boundCamera = camera
 
                 val cameraManager = getSystemService(Context.CAMERA_SERVICE) as CameraManager
                 val cameraId = Camera2CameraInfo.from(camera.cameraInfo).cameraId
@@ -150,15 +220,16 @@ class MainActivity : AppCompatActivity() {
                     characteristics = characteristics,
                     resultStore = resultStore,
                     coroutineScope = lifecycleScope,
-                    executor = cameraExecutor // keep this; your controller accepts Executor
+                    executor = cameraExecutor
                 )
 
-            } catch (e: Exception) {
-                Log.e(TAG, "Use case binding failed", e)
+                updateCapabilityUi(characteristics)
+
+            } catch (exc: Exception) {
+                Log.e(TAG, "Use case binding failed", exc)
             }
         }, ContextCompat.getMainExecutor(this))
     }
-
 
     private fun updateCapabilityUi(characteristics: CameraCharacteristics) {
         val caps = characteristics.get(CameraCharacteristics.REQUEST_AVAILABLE_CAPABILITIES)?.toSet().orEmpty()
@@ -172,19 +243,48 @@ class MainActivity : AppCompatActivity() {
 
         viewBinding.manualSensorSupport.text =
             "Manual Sensor: ${if (hasManualSensor) "Supported" else "Not Supported"} | AE lock: ${if (aeLockAvailable) "Yes" else "No"}"
-
         viewBinding.manualFocusSupport.text =
             "Manual Focus Distance: ${if (hasManualFocusDist) "Supported" else "Not Supported"}"
-
         viewBinding.manualWhiteBalanceSupport.text =
             "AWB Lock: ${if (awbLockAvailable) "Supported" else "Not Supported"}"
     }
 
     private fun updateLockStatusUi() {
-        // Your CameraController exposes status strings (not booleans) :contentReference[oaicite:1]{index=1}
         viewBinding.afLockStatus.text = "AF: ${cameraController?.afStatus ?: "—"}"
         viewBinding.aeLockStatus.text = "AE: ${cameraController?.aeStatus ?: "—"}"
         viewBinding.awbLockStatus.text = "WB: ${cameraController?.wbStatus ?: "—"}"
+    }
+
+    private fun updateQualityUi(result: QualityResult) {
+        lastQualityStatus = result.status
+
+        viewBinding.qualityStatusText.text = when (result.status) {
+            QualityStatus.OK -> "✅ OK"
+            QualityStatus.BLUR -> "⚠️ BLUR"
+            QualityStatus.OVER -> "⚠️ OVER"
+            QualityStatus.UNDER ->
+                if (!viewBinding.torchSwitch.isChecked) "⚠️ UNDER (try Torch)" else "⚠️ UNDER"
+        }
+
+        viewBinding.distanceText.text =
+            result.distanceCm?.let { "Distance: ~${it.toInt()} cm" } ?: "Distance: N/A"
+
+        updateCaptureEnabled()
+    }
+
+    private fun updateUi() {
+        val active = sessionManager.isSessionActive()
+        viewBinding.startSessionButton.isEnabled = !active
+        viewBinding.endSessionButton.isEnabled = active
+        viewBinding.lockButton.isEnabled = active
+        updateCaptureEnabled()
+    }
+
+    private fun updateCaptureEnabled() {
+        val active = sessionManager.isSessionActive()
+        val block = viewBinding.blockCaptureSwitch.isChecked
+        val ok = lastQualityStatus == QualityStatus.OK
+        viewBinding.captureButton.isEnabled = active && (!block || ok)
     }
 
     private fun allPermissionsGranted() = REQUIRED_PERMISSIONS.all {
@@ -198,25 +298,17 @@ class MainActivity : AppCompatActivity() {
     ) {
         super.onRequestPermissionsResult(requestCode, permissions, grantResults)
         if (requestCode == REQUEST_CODE_PERMISSIONS) {
-            if (allPermissionsGranted()) {
-                startCamera()
-            } else {
+            if (allPermissionsGranted()) startCamera()
+            else {
                 Toast.makeText(this, "Permissions not granted by the user.", Toast.LENGTH_SHORT).show()
                 finish()
             }
         }
     }
 
-    private fun updateUi() {
-        val sessionActive = sessionManager.isSessionActive()
-        viewBinding.startSessionButton.isEnabled = !sessionActive
-        viewBinding.captureButton.isEnabled = sessionActive
-        viewBinding.endSessionButton.isEnabled = sessionActive
-        viewBinding.lockButton.isEnabled = sessionActive
-    }
-
     override fun onDestroy() {
         super.onDestroy()
+        try { boundCamera?.cameraControl?.enableTorch(false) } catch (_: Throwable) {}
         cameraExecutor.shutdown()
     }
 
