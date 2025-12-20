@@ -187,6 +187,53 @@
                     android:text="End" />
             </LinearLayout>
 
+                        <TextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="10dp"
+                android:text="Calibration Profile"
+                android:textColor="@android:color/white"
+                android:textStyle="bold" />
+
+            <Spinner
+                android:id="@+id/calibrationProfileSpinner"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="6dp"
+                android:spinnerMode="dropdown" />
+
+            <com.google.android.material.switchmaterial.SwitchMaterial
+                android:id="@+id/stabilizeCaptureFocusSwitch"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="6dp"
+                android:text="Stabilize focus (AF lock)"
+                android:textColor="@android:color/white" />
+
+            <com.google.android.material.switchmaterial.SwitchMaterial
+                android:id="@+id/useCalFocusSwitch"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="2dp"
+                android:text="Use calibration focus distance (experimental)"
+                android:textColor="@android:color/white" />
+
+            <com.google.android.material.button.MaterialButton
+                android:id="@+id/advancedToggleButton"
+                style="?attr/materialButtonOutlinedStyle"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="10dp"
+                android:text="Advanced ▾" />
+
+            <LinearLayout
+                android:id="@+id/advancedContainer"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="8dp"
+                android:orientation="vertical"
+                android:visibility="gone">
+
             <com.google.android.material.button.MaterialButton
                 android:id="@+id/exportSessionButton"
                 style="?attr/materialButtonOutlinedStyle"
@@ -281,6 +328,8 @@
                     android:layout_marginTop="6dp"
                     android:text="Cancel"
                     android:visibility="gone" />
+
+            </LinearLayout>
 
             </LinearLayout>
 

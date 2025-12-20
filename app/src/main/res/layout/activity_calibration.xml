@@ -207,6 +207,22 @@
             </LinearLayout>
 
             <com.google.android.material.button.MaterialButton
+                android:id="@+id/advancedToggleButton"
+                style="?attr/materialButtonOutlinedStyle"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="10dp"
+                android:text="Advanced ▾" />
+
+            <LinearLayout
+                android:id="@+id/advancedContainer"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="8dp"
+                android:orientation="vertical"
+                android:visibility="gone">
+
+            <com.google.android.material.button.MaterialButton
                 android:id="@+id/exportSessionButton"
                 style="?attr/materialButtonOutlinedStyle"
                 android:layout_width="match_parent"
@@ -303,6 +319,8 @@
 
             </LinearLayout>
 
+            </LinearLayout>
+
 
         </LinearLayout>
     </com.google.android.material.card.MaterialCardView>
@@ -350,6 +368,15 @@
                     android:textColor="@android:color/white"
                     android:textColorHint="#CCFFFFFF" />
             </com.google.android.material.textfield.TextInputLayout>
+
+                        <com.google.android.material.switchmaterial.SwitchMaterial
+                android:id="@+id/lockAfCalibrationSwitch"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="8dp"
+                android:checked="true"
+                android:text="Lock autofocus during calibration"
+                android:textColor="@android:color/white" />
 
             <com.google.android.material.button.MaterialButton
                 android:id="@+id/startSessionButton"

@@ -106,6 +106,7 @@ class CaptureActivity : AppCompatActivity() {
         cameraExecutor = Executors.newSingleThreadExecutor()
         initTransferUi()
 
+        initAdvancedPanelUi()
         binding.blockCaptureSwitch.setOnCheckedChangeListener { _, _ ->
             updateCaptureEnabled()
         }
@@ -275,6 +276,18 @@ class CaptureActivity : AppCompatActivity() {
     }
 
     // ===== Phase 2: PC Transfer helpers =====
+    private fun initAdvancedPanelUi() {
+        // Advanced panel is collapsed by default to keep PreviewView visible.
+        binding.advancedContainer.visibility = View.GONE
+        binding.advancedToggleButton.text = "Advanced ▾"
+        binding.advancedToggleButton.setOnClickListener {
+            val showing = binding.advancedContainer.visibility == View.VISIBLE
+            binding.advancedContainer.visibility = if (showing) View.GONE else View.VISIBLE
+            binding.advancedToggleButton.text = if (showing) "Advanced ▾" else "Advanced ▴"
+        }
+    }
+
+
 
     private fun initTransferUi() {
         binding.sendProgressBar.max = 100

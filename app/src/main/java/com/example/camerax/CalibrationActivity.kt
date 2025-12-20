@@ -107,6 +107,7 @@ class CalibrationActivity : AppCompatActivity() {
         cameraExecutor = Executors.newSingleThreadExecutor()
         initTransferUi()
 
+        initAdvancedPanelUi()
         // Default calibration target distance = 25 cm (only on first open)
         if (savedInstanceState == null) {
             val current = binding.targetDistanceEdit.text?.toString()?.trim().orEmpty()
@@ -285,6 +286,18 @@ class CalibrationActivity : AppCompatActivity() {
     }
 
     // ===== Phase 2: PC Transfer helpers =====
+    private fun initAdvancedPanelUi() {
+        // Advanced panel is collapsed by default to keep PreviewView visible.
+        binding.advancedContainer.visibility = View.GONE
+        binding.advancedToggleButton.text = "Advanced ▾"
+        binding.advancedToggleButton.setOnClickListener {
+            val showing = binding.advancedContainer.visibility == View.VISIBLE
+            binding.advancedContainer.visibility = if (showing) View.GONE else View.VISIBLE
+            binding.advancedToggleButton.text = if (showing) "Advanced ▾" else "Advanced ▴"
+        }
+    }
+
+
 
     private fun initTransferUi() {
         binding.sendProgressBar.max = 100
