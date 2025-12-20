@@ -3,7 +3,16 @@
     xmlns:tools="http://schemas.android.com/tools">
 
     <uses-feature android:name="android.hardware.camera.any" />
+
     <uses-permission android:name="android.permission.CAMERA" />
+    <uses-permission android:name="android.permission.INTERNET" />
+    <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
+
+    <!-- Needed only for API 28 and below (your app requests it at runtime). -->
+    <uses-permission
+        android:name="android.permission.WRITE_EXTERNAL_STORAGE"
+        android:maxSdkVersion="28"
+        tools:ignore="ScopedStorage" />
 
     <application
         android:allowBackup="true"
@@ -13,10 +22,11 @@
         android:label="@string/app_name"
         android:roundIcon="@mipmap/ic_launcher_round"
         android:supportsRtl="true"
-        android:theme="@style/Theme.Camerax">
+        android:theme="@style/Theme.Camerax"
+        android:usesCleartextTraffic="true">
 
         <activity
-            android:name=".InstructionsActivity"
+            android:name=".CaptureActivity"
             android:exported="false" />
 
         <activity
@@ -24,7 +34,7 @@
             android:exported="false" />
 
         <activity
-            android:name=".CaptureActivity"
+            android:name=".InstructionsActivity"
             android:exported="false" />
 
         <!-- Home / Launcher -->

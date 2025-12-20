@@ -8,6 +8,15 @@ import android.hardware.camera2.CameraCharacteristics
 import android.hardware.camera2.CameraManager
 import android.os.Build
 import android.os.Bundle
+import android.net.ConnectivityManager
+import android.net.NetworkCapabilities
+import android.view.View
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
+import kotlinx.coroutines.isActive
 import android.util.Log
 import android.util.Size
 import android.widget.Toast
@@ -42,6 +51,14 @@ class CaptureActivity : AppCompatActivity() {
     private lateinit var sessionManager: SessionManager
     private lateinit var manifestWriter: ManifestWriter
     private lateinit var zipExporter: ZipExporter
+
+    // ===== Phase 2: PC Transfer (LAN upload) =====
+    private lateinit var transferConfigStore: TransferConfigStore
+    private lateinit var sessionUploader: SessionUploader
+    private var uploadJob: Job? = null
+    @Volatile private var isUploading: Boolean = false
+    private var lastUploadPercent: Int = -1
+    private var lastUploadUiUpdateMs: Long = 0L
     private val sidecarWriter = ImageSidecarWriter()
 
     private val resultStore = CaptureResultStore()
@@ -84,7 +101,10 @@ class CaptureActivity : AppCompatActivity() {
         sessionManager = SessionManager(this)
         manifestWriter = ManifestWriter()
         zipExporter = ZipExporter(this)
+        transferConfigStore = TransferConfigStore(this)
+        sessionUploader = SessionUploader(this)
         cameraExecutor = Executors.newSingleThreadExecutor()
+        initTransferUi()
 
         binding.blockCaptureSwitch.setOnCheckedChangeListener { _, _ ->
             updateCaptureEnabled()
@@ -121,6 +141,9 @@ class CaptureActivity : AppCompatActivity() {
         }
 
         binding.exportSessionButton.setOnClickListener { exportSession() }
+
+        binding.sendSessionButton.setOnClickListener { startUpload() }
+        binding.cancelSendButton.setOnClickListener { cancelUpload() }
 
         if (allPermissionsGranted()) startCamera()
         else ActivityCompat.requestPermissions(this, REQUIRED_PERMISSIONS, REQUEST_CODE_PERMISSIONS)
@@ -251,6 +274,163 @@ class CaptureActivity : AppCompatActivity() {
         }
     }
 
+    // ===== Phase 2: PC Transfer helpers =====
+
+    private fun initTransferUi() {
+        binding.sendProgressBar.max = 100
+        binding.sendProgressBar.progress = 0
+        binding.sendProgressBar.visibility = View.GONE
+        binding.cancelSendButton.visibility = View.GONE
+
+        binding.pcIpEdit.setText(transferConfigStore.getPcIp())
+        binding.pcPortEdit.setText(transferConfigStore.getPcPort().toString())
+        binding.sendStatusText.text = "Ready"
+    }
+
+    private fun persistTransferInputs(): Pair<String, Int>? {
+        val ip = binding.pcIpEdit.text?.toString()?.trim().orEmpty()
+        val portStr = binding.pcPortEdit.text?.toString()?.trim().orEmpty()
+
+        if (ip.isBlank()) {
+            Toast.makeText(this, "Enter PC IP", Toast.LENGTH_SHORT).show()
+            return null
+        }
+
+        val port = portStr.toIntOrNull() ?: 8080
+        if (port !in 1..65535) {
+            Toast.makeText(this, "Invalid port", Toast.LENGTH_SHORT).show()
+            return null
+        }
+
+        transferConfigStore.setPcIp(ip)
+        transferConfigStore.setPcPort(port)
+        return ip to port
+    }
+
+    private fun isWifiConnected(): Boolean {
+        return try {
+            val cm = getSystemService(Context.CONNECTIVITY_SERVICE) as ConnectivityManager
+            val net = cm.activeNetwork ?: return false
+            val caps = cm.getNetworkCapabilities(net) ?: return false
+            caps.hasTransport(NetworkCapabilities.TRANSPORT_WIFI)
+        } catch (_: Throwable) {
+            // Some devices/ROMs may throw without ACCESS_NETWORK_STATE; don't crash.
+            true
+        }
+    }
+
+    private fun startUpload() {
+        try {
+        if (isUploading) return
+        if (!sessionManager.hasSession()) {
+            Toast.makeText(this, "No session to send.", Toast.LENGTH_SHORT).show()
+            return
+        }
+        if (sessionManager.isSessionActive()) {
+            Toast.makeText(this, "End the session before sending.", Toast.LENGTH_SHORT).show()
+            return
+        }
+        val cfg = persistTransferInputs() ?: return
+        if (!isWifiConnected()) {
+            Toast.makeText(this, "Wi‑Fi not connected.", Toast.LENGTH_SHORT).show()
+            return
+        }
+
+        val (ip, port) = cfg
+        val url = "http://$ip:$port/upload"
+
+        val sessionDir = sessionManager.getSessionDirectory()
+        val sessionType = sessionManager.getSessionType()
+
+        isUploading = true
+        lastUploadPercent = -1
+        lastUploadUiUpdateMs = 0L
+        binding.sendProgressBar.progress = 0
+        binding.sendProgressBar.visibility = View.VISIBLE
+        binding.cancelSendButton.visibility = View.VISIBLE
+        binding.sendStatusText.text = "Preparing ZIP…"
+        updateUi()
+
+        uploadJob = lifecycleScope.launch {
+            try {
+                val zipFile = withContext(Dispatchers.IO) {
+                    zipExporter.exportSessionToZip(sessionDir, sessionType)
+                }
+                val totalBytes = zipFile.length()
+
+                binding.sendStatusText.text = "Hashing…"
+                val sha256 = withContext(Dispatchers.IO) {
+                    // Cancellation-safe: computeSha256 polls shouldContinue() to abort early.
+                    SessionUploader.computeSha256(zipFile) { isActive }
+                }
+
+                val meta = SessionUploader.UploadMeta(
+                    sessionType = sessionType.name,
+                    sessionName = sessionDir.name,
+                    zipFileName = zipFile.name,
+                    fileSize = totalBytes,
+                    sha256 = sha256
+                )
+
+                binding.sendStatusText.text = "Uploading…"
+                val result = sessionUploader.upload(
+                    url = url,
+                    zipFile = zipFile,
+                    meta = meta
+                ) { sent, total ->
+                    val pct = if (total > 0L) ((sent * 100L) / total).toInt() else 0
+                    val now = System.currentTimeMillis()
+                    if (pct != lastUploadPercent && (now - lastUploadUiUpdateMs) > 120L) {
+                        lastUploadPercent = pct
+                        lastUploadUiUpdateMs = now
+                        runOnUiThread {
+                            binding.sendProgressBar.progress = pct.coerceIn(0, 100)
+                            binding.sendStatusText.text = "Uploading… $pct%"
+                        }
+                    }
+                }
+
+                if (result.success) {
+                    withContext(Dispatchers.IO) {
+                        SessionUploader.markSessionSent(context = this@CaptureActivity, meta = meta, url = url, response = result.responseBody, httpCode = result.httpCode)
+                    }
+                    Toast.makeText(this@CaptureActivity, "Sent ✓ (${result.httpCode})", Toast.LENGTH_LONG).show()
+                    binding.sendStatusText.text = "Sent ✓ (${result.httpCode})"
+                } else {
+                    Toast.makeText(this@CaptureActivity, "Send failed: ${result.errorMessage}", Toast.LENGTH_LONG).show()
+                    binding.sendStatusText.text = "Failed: ${result.errorMessage}"
+                }
+            } catch (ce: CancellationException) {
+                binding.sendStatusText.text = "Canceled"
+            } catch (t: Throwable) {
+                Log.e(TAG, "Upload failed: ${t.message}", t)
+                binding.sendStatusText.text = "Error: ${t.message}"
+                Toast.makeText(this@CaptureActivity, "Upload error: ${t.message}", Toast.LENGTH_LONG).show()
+            } finally {
+                isUploading = false
+                binding.cancelSendButton.visibility = View.GONE
+                updateUi()
+            }
+        }
+    
+        } catch (t: Throwable) {
+            Log.e(TAG, "startUpload crashed: ${t.message}", t)
+            Toast.makeText(this, "Send crashed: ${t.message}", Toast.LENGTH_LONG).show()
+            isUploading = false
+            binding.cancelSendButton.visibility = View.GONE
+            binding.sendProgressBar.visibility = View.GONE
+            binding.sendStatusText.text = "Error: ${t.message}"
+            updateUi()
+        }
+}
+
+    private fun cancelUpload() {
+        uploadJob?.cancel()
+    }
+
+
+
+
     private fun writeManifest() {
         val sessionInfo = sessionManager.getSessionInfo().toMutableMap()
         sessionInfo["chosenResolution"] = "${captureResolution.width}x${captureResolution.height}"
@@ -269,6 +449,21 @@ class CaptureActivity : AppCompatActivity() {
 
         updateCaptureEnabled()
         updateExportEnabled()
+        updateTransferEnabled()
+    }
+
+    private fun updateTransferEnabled() {
+        // Require a completed (ended) session for deterministic transfer
+        val canSend = sessionManager.hasSession() && !sessionManager.isSessionActive() && !isExporting && !isUploading
+        binding.sendSessionButton.isEnabled = canSend
+        binding.pcIpEdit.isEnabled = !isUploading
+        binding.pcPortEdit.isEnabled = !isUploading
+        binding.cancelSendButton.isEnabled = isUploading
+
+        if (!isUploading) {
+            binding.sendProgressBar.visibility = View.GONE
+            binding.cancelSendButton.visibility = View.GONE
+        }
     }
 
     private fun updateCaptureEnabled() {
@@ -279,7 +474,7 @@ class CaptureActivity : AppCompatActivity() {
     }
 
     private fun updateExportEnabled() {
-        binding.exportSessionButton.isEnabled = sessionManager.hasSession() && !isExporting
+        binding.exportSessionButton.isEnabled = sessionManager.hasSession() && !isExporting && !isUploading
     }
 
     @OptIn(ExperimentalCamera2Interop::class)

@@ -42,9 +42,6 @@ dependencies {
     implementation("androidx.core:core-ktx:1.13.1")
     implementation("androidx.appcompat:appcompat:1.6.1")
     implementation("com.google.android.material:material:1.11.0")
-    testImplementation("junit:junit:4.13.2")
-    androidTestImplementation("androidx.test.ext:junit:1.1.5")
-    androidTestImplementation("androidx.test.espresso:espresso-core:3.5.1")
 
     // CameraX dependencies
     implementation("androidx.camera:camera-core:1.5.2")
@@ -52,23 +49,17 @@ dependencies {
     implementation("androidx.camera:camera-lifecycle:1.5.2")
     implementation("androidx.camera:camera-view:1.5.2")
 
-    kotlin
-    dependencies {
-        implementation("androidx.core:core-ktx:1.13.1")
-        implementation("androidx.appcompat:appcompat:1.6.1")
-        implementation("com.google.android.material:material:1.11.0")
-        testImplementation("junit:junit:4.13.2")
-        androidTestImplementation("androidx.test.ext:junit:1.1.5")
-        androidTestImplementation("androidx.test.espresso:espresso-core:3.5.1")
+    // Guava (FutureCallback etc.)
+    implementation("com.google.guava:guava:33.2.1-android")
 
-        // CameraX dependencies
-        implementation("androidx.camera:camera-core:1.5.2")
-        implementation("androidx.camera:camera-camera2:1.5.2")
-        implementation("androidx.camera:camera-lifecycle:1.5.2")
-        implementation("androidx.camera:camera-view:1.5.2")
+    // Coroutines + lifecycleScope
+    implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.8.1")
+    implementation("androidx.lifecycle:lifecycle-runtime-ktx:2.8.7")
 
-        // Add this line to resolve the 'FutureCallback' reference
-        implementation("com.google.guava:guava:33.2.1-android")
-    }
+    // Phase 2 transfer (OkHttp)
+    implementation("com.squareup.okhttp3:okhttp:4.12.0")
 
+    testImplementation("junit:junit:4.13.2")
+    androidTestImplementation("androidx.test.ext:junit:1.1.5")
+    androidTestImplementation("androidx.test.espresso:espresso-core:3.5.1")
 }
