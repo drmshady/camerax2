@@ -19,6 +19,7 @@ import kotlinx.coroutines.withContext
 import kotlinx.coroutines.isActive
 import android.util.Log
 import android.util.Size
+import android.util.SizeF
 import android.widget.Toast
 import androidx.activity.OnBackPressedCallback
 import androidx.appcompat.app.AppCompatActivity
@@ -47,6 +48,9 @@ class CalibrationActivity : AppCompatActivity() {
     private var imageCapture: ImageCapture? = null
     private var imageAnalysis: ImageAnalysis? = null
     private var boundCamera: Camera? = null
+
+    private var currentCameraId: String? = null
+    private var currentCameraCharacteristics: CameraCharacteristics? = null
 
     private lateinit var cameraExecutor: ExecutorService
     private lateinit var sessionManager: SessionManager
@@ -138,9 +142,10 @@ class CalibrationActivity : AppCompatActivity() {
         binding.startSessionButton.setOnClickListener { startSessionFromUi() }
 
         binding.lockButton.setOnClickListener {
-            cameraController?.lockForPhotogrammetry(settleMs = 1500L)
+            // Calibration should stabilize focus to keep intrinsics more consistent.
+            cameraController?.lockForPhotogrammetry(settleMs = 1500L, stabilizeFocus = true)
             updateLockStatusUi()
-            binding.lockButton.postDelayed({ updateLockStatusUi() }, 2000L)
+            binding.lockButton.postDelayed({ updateLockStatusUi() }, 2500L)
         }
 
         binding.captureButton.setOnClickListener { takePhoto() }
@@ -460,6 +465,142 @@ class CalibrationActivity : AppCompatActivity() {
 
 
 
+    private fun buildAppInfo(): Map<String, Any?> {
+        return try {
+            val pi = packageManager.getPackageInfo(packageName, 0)
+            val vCode: Long = if (Build.VERSION.SDK_INT >= 28) {
+                pi.longVersionCode
+            } else {
+                @Suppress("DEPRECATION")
+                pi.versionCode.toLong()
+            }
+            linkedMapOf(
+                "packageName" to packageName,
+                "versionName" to pi.versionName,
+                "versionCode" to vCode
+            )
+        } catch (_: Throwable) {
+            linkedMapOf(
+                "packageName" to packageName,
+                "versionName" to null,
+                "versionCode" to null
+            )
+        }
+    }
+
+    private fun buildDeviceInfo(): Map<String, Any?> {
+        return linkedMapOf(
+            "manufacturer" to Build.MANUFACTURER,
+            "model" to Build.MODEL,
+            "device" to Build.DEVICE,
+            "product" to Build.PRODUCT,
+            "sdkInt" to Build.VERSION.SDK_INT,
+            "androidRelease" to Build.VERSION.RELEASE
+        )
+    }
+
+    private fun buildCameraProfile(): Map<String, Any?> {
+        val ch = currentCameraCharacteristics
+        val facing = ch?.get(CameraCharacteristics.LENS_FACING)
+        val facingStr = when (facing) {
+            CameraCharacteristics.LENS_FACING_BACK -> "BACK"
+            CameraCharacteristics.LENS_FACING_FRONT -> "FRONT"
+            CameraCharacteristics.LENS_FACING_EXTERNAL -> "EXTERNAL"
+            else -> null
+        }
+
+        val focal = ch?.get(CameraCharacteristics.LENS_INFO_AVAILABLE_FOCAL_LENGTHS)
+        val focalList: List<Double>? = focal?.map { it.toDouble() }
+
+        val sensorSize: SizeF? = ch?.get(CameraCharacteristics.SENSOR_INFO_PHYSICAL_SIZE)
+        val sensorSizeMap = sensorSize?.let {
+            linkedMapOf("widthMm" to it.width.toDouble(), "heightMm" to it.height.toDouble())
+        }
+
+        val pixelArray = ch?.get(CameraCharacteristics.SENSOR_INFO_PIXEL_ARRAY_SIZE)
+        val pixelArrayMap = pixelArray?.let {
+            linkedMapOf("width" to it.width, "height" to it.height)
+        }
+
+        val caps = ch?.get(CameraCharacteristics.REQUEST_AVAILABLE_CAPABILITIES)?.toSet().orEmpty()
+        val supportsManualSensor = caps.contains(CameraCharacteristics.REQUEST_AVAILABLE_CAPABILITIES_MANUAL_SENSOR)
+
+        val minFocusDist = ch?.get(CameraCharacteristics.LENS_INFO_MINIMUM_FOCUS_DISTANCE)
+        val supportsManualFocusDist = (minFocusDist != null && minFocusDist > 0f)
+
+        val aeLockAvailable = ch?.get(CameraCharacteristics.CONTROL_AE_LOCK_AVAILABLE) == true
+        val awbLockAvailable = ch?.get(CameraCharacteristics.CONTROL_AWB_LOCK_AVAILABLE) == true
+
+        val physicalIds: List<String>? = try {
+            if (Build.VERSION.SDK_INT >= 28) ch?.physicalCameraIds?.toList() else null
+        } catch (_: Throwable) {
+            null
+        }
+
+        return linkedMapOf(
+            "cameraId" to currentCameraId,
+            "lensFacing" to facingStr,
+            "physicalCameraIds" to physicalIds,
+            "sensorOrientationDeg" to ch?.get(CameraCharacteristics.SENSOR_ORIENTATION),
+            "focalLengthsMm" to focalList,
+            "sensorPhysicalSize" to sensorSizeMap,
+            "pixelArraySize" to pixelArrayMap,
+            "minFocusDistanceDiopters" to minFocusDist?.toDouble(),
+            "supportsManualFocusDistance" to supportsManualFocusDist,
+            "supportsManualSensor" to supportsManualSensor,
+            "aeLockAvailable" to aeLockAvailable,
+            "awbLockAvailable" to awbLockAvailable
+        )
+    }
+
+    private fun buildCaptureProfile(): Map<String, Any?> {
+        val zoomRatio: Double? = try {
+            boundCamera?.cameraInfo?.zoomState?.value?.zoomRatio?.toDouble()
+        } catch (_: Throwable) {
+            null
+        }
+
+        val cap = resultStore.snapshot()
+
+        val afStatus = cameraController?.afStatus
+        val aeStatus = cameraController?.aeStatus
+        val wbStatus = cameraController?.wbStatus
+
+        val focusPolicy = if (afStatus?.contains("lock", ignoreCase = true) == true) "LOCKED" else "CONTINUOUS"
+        val exposurePolicy = if (aeStatus?.contains("lock", ignoreCase = true) == true) "LOCKED" else "AUTO"
+        val wbPolicy = if (wbStatus?.contains("lock", ignoreCase = true) == true) "LOCKED" else "AUTO"
+
+        return linkedMapOf(
+            "resolution" to linkedMapOf(
+                "width" to captureResolution.width,
+                "height" to captureResolution.height,
+                "label" to "${captureResolution.width}x${captureResolution.height}"
+            ),
+            "zoomRatio" to zoomRatio,
+            "focusPolicy" to focusPolicy,
+            "exposurePolicy" to exposurePolicy,
+            "whiteBalancePolicy" to wbPolicy,
+            "afStatus" to afStatus,
+            "aeStatus" to aeStatus,
+            "awbStatus" to wbStatus,
+            "iso" to cap.iso,
+            "shutterNs" to cap.shutterNs,
+            "exposureTimeUs" to cap.shutterNs?.let { it / 1000L },
+            "focusDistanceDiopters" to cap.focusDistanceDiopters,
+            "torch" to if (binding.torchSwitch.isChecked) "ON" else "OFF",
+            "lockModeUsed" to cameraController?.lockModeUsed
+        )
+    }
+
+    private fun buildMarkerSystem(): Map<String, Any?> {
+        // You chose AprilTag for Phase 3.
+        return linkedMapOf(
+            "type" to "AprilTag",
+            "family" to "tag36h11"
+        )
+    }
+
+
     private fun writeManifest() {
         val sessionInfo = sessionManager.getSessionInfo().toMutableMap()
         sessionInfo["chosenResolution"] = "${captureResolution.width}x${captureResolution.height}"
@@ -558,6 +699,9 @@ class CalibrationActivity : AppCompatActivity() {
                 val cameraId = Camera2CameraInfo.from(camera.cameraInfo).cameraId
                 val characteristics = cameraManager.getCameraCharacteristics(cameraId)
 
+                currentCameraId = cameraId
+                currentCameraCharacteristics = characteristics
+
                 cameraController = CameraController(
                     camera = camera,
                     characteristics = characteristics,
@@ -593,9 +737,10 @@ class CalibrationActivity : AppCompatActivity() {
     }
 
     private fun updateLockStatusUi() {
-        binding.afLockStatus.text = "AF: ${cameraController?.afStatus ?: "—"}"
-        binding.aeLockStatus.text = "AE: ${cameraController?.aeStatus ?: "—"}"
-        binding.awbLockStatus.text = "WB: ${cameraController?.wbStatus ?: "—"}"
+        val snap = resultStore.snapshot()
+        binding.afLockStatus.text = "AF: ${cameraController?.afStatus ?: "—"} | state=${snap.afState ?: "—"} | fd=${snap.focusDistanceDiopters?.let { String.format("%.2fD", it) } ?: "—"}"
+        binding.aeLockStatus.text = "AE: ${cameraController?.aeStatus ?: "—"} | state=${snap.aeState ?: "—"} | ISO=${snap.iso ?: "—"}"
+        binding.awbLockStatus.text = "WB: ${cameraController?.wbStatus ?: "—"} | state=${snap.awbState ?: "—"}"
     }
 
     private fun updateQualityUi(result: QualityResult) {

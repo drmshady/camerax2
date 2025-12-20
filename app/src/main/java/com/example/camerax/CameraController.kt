@@ -35,12 +35,22 @@ class CameraController(
     @Volatile var wbStatus: String = "AUTO"
     @Volatile var afStatus: String = "AUTO"
 
-    // Step 6 needs this
+    // For deterministic metadata
     @Volatile var lockModeUsed: String = "fallback"
 
     private val camera2 = Camera2CameraControl.from(camera.cameraControl)
 
-    fun lockForPhotogrammetry(settleMs: Long = 1500L) {
+    /**
+     * Locks AE/AWB (manual sensor if available; otherwise AE_LOCK/AWB_LOCK).
+     *
+     * Optional: stabilizeFocus=true will "hold" focus at the settled focus distance:
+     * - lets AF settle at the center
+     * - reads LENS_FOCUS_DISTANCE (diopters)
+     * - if supported: sets AF_MODE=OFF and sets LENS_FOCUS_DISTANCE to freeze the lens
+     *
+     * This is safest for CALIBRATION and is optionally useful for CAPTURE if working distance is stable.
+     */
+    fun lockForPhotogrammetry(settleMs: Long = 1500L, stabilizeFocus: Boolean = false) {
         coroutineScope.launch {
             try {
                 // 1) Force AUTO first
@@ -49,11 +59,17 @@ class CameraController(
                 // 2) Help AE/AWB/AF converge at center, then wait
                 runCenterMetering(settleMs)
 
+                // 2.5) Optionally hold focus at the settled distance
+                if (stabilizeFocus) {
+                    val fd = resultStore.latestFocusDistance()
+                    applyFocusHold(fd).await()
+                }
+
                 // 3) Read what AUTO settled to
                 val autoIso = resultStore.latestIso()
                 val autoShutter = resultStore.latestShutterNs()
 
-                Log.d(TAG, "AUTO settled ISO=$autoIso shutterNs=$autoShutter")
+                Log.d(TAG, "AUTO settled ISO=$autoIso shutterNs=$autoShutter fd=${resultStore.latestFocusDistance()}")
 
                 // 4) Lock exposure + WB using those values if possible
                 applyExposureAndWbLock(autoShutter, autoIso).await()
@@ -107,7 +123,35 @@ class CameraController(
         } catch (_: Throwable) { /* non-fatal */ }
 
         delay(settleMs)
-        afStatus = "AUTO settled"
+
+        val afState = resultStore.latestAfState()
+        val fd = resultStore.latestFocusDistance()
+        afStatus = "AUTO settled (state=$afState fd=${formatDiopters(fd)})"
+    }
+
+    private fun applyFocusHold(focusDistanceDiopters: Float?): ListenableFuture<Void> {
+        val minFocus = characteristics.get(CameraCharacteristics.LENS_INFO_MINIMUM_FOCUS_DISTANCE) ?: 0f
+        val canManualFocusDistance = minFocus > 0f && focusDistanceDiopters != null
+
+        val b = CaptureRequestOptions.Builder()
+
+        return if (canManualFocusDistance) {
+            val clamped = focusDistanceDiopters!!.coerceIn(0f, minFocus)
+
+            b.setCaptureRequestOption(CaptureRequest.CONTROL_AF_MODE, CameraMetadata.CONTROL_AF_MODE_OFF)
+            b.setCaptureRequestOption(CaptureRequest.LENS_FOCUS_DISTANCE, clamped)
+            b.setCaptureRequestOption(CaptureRequest.CONTROL_AF_TRIGGER, CameraMetadata.CONTROL_AF_TRIGGER_IDLE)
+
+            afStatus = "HOLD (AF_OFF fd=${formatDiopters(clamped)})"
+            camera2.addCaptureRequestOptions(b.build())
+        } else {
+            // Fallback: keep continuous AF but stop any active scan if possible.
+            b.setCaptureRequestOption(CaptureRequest.CONTROL_AF_MODE, CameraMetadata.CONTROL_AF_MODE_CONTINUOUS_PICTURE)
+            b.setCaptureRequestOption(CaptureRequest.CONTROL_AF_TRIGGER, CameraMetadata.CONTROL_AF_TRIGGER_CANCEL)
+
+            afStatus = "CONTINUOUS (no manual fd)"
+            camera2.addCaptureRequestOptions(b.build())
+        }
     }
 
     private fun applyExposureAndWbLock(autoShutterNs: Long?, autoIso: Int?): ListenableFuture<Void> {
@@ -140,6 +184,9 @@ class CameraController(
             aeStatus = "AE_LOCK (no manual)"
             lockModeUsed = "AE_LOCK"
         } else {
+            b.setCaptureRequestOption(CaptureRequest.CONTROL_AE_MODE, CameraMetadata.CONTROL_AE_MODE_ON)
+            b.setCaptureRequestOption(CaptureRequest.CONTROL_AE_LOCK, false)
+
             aeStatus = "AUTO (no lock available)"
             lockModeUsed = "fallback"
         }
@@ -151,10 +198,17 @@ class CameraController(
             b.setCaptureRequestOption(CaptureRequest.CONTROL_AWB_LOCK, true)
             wbStatus = "AWB_LOCK"
         } else {
+            b.setCaptureRequestOption(CaptureRequest.CONTROL_AWB_MODE, CameraMetadata.CONTROL_AWB_MODE_AUTO)
+            b.setCaptureRequestOption(CaptureRequest.CONTROL_AWB_LOCK, false)
             wbStatus = "AUTO (no lock available)"
         }
 
         return camera2.addCaptureRequestOptions(b.build())
+    }
+
+    private fun formatDiopters(d: Float?): String {
+        if (d == null) return "—"
+        return String.format("%.2fD", d)
     }
 
     private suspend fun <T> ListenableFuture<T>.await(): T =
