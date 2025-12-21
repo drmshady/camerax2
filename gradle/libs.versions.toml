@@ -1,4 +1,5 @@
 [versions]
+boofcv = "1.2.4"
 agp = "8.13.2"
 kotlin = "2.0.21"
 coreKtx = "1.17.0"
@@ -11,6 +12,8 @@ activity = "1.8.0"
 constraintlayout = "2.2.1"
 
 [libraries]
+boofcv-android = { group = "org.boofcv", name = "boofcv-android", version.ref = "boofcv" }
+boofcv-recognition = { group = "org.boofcv", name = "boofcv-recognition", version.ref = "boofcv" }
 androidx-core-ktx = { group = "androidx.core", name = "core-ktx", version.ref = "coreKtx" }
 junit = { group = "junit", name = "junit", version.ref = "junit" }
 androidx-junit = { group = "androidx.test.ext", name = "junit", version.ref = "junitVersion" }

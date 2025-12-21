@@ -21,6 +21,9 @@ import android.util.Log
 import android.util.Size
 import android.util.SizeF
 import android.widget.Toast
+import android.widget.ArrayAdapter
+import android.widget.AdapterView
+import android.view.inputmethod.EditorInfo
 import androidx.activity.OnBackPressedCallback
 import androidx.appcompat.app.AppCompatActivity
 import androidx.camera.camera2.interop.Camera2CameraInfo
@@ -65,11 +68,14 @@ class CaptureActivity : AppCompatActivity() {
     private var lastUploadUiUpdateMs: Long = 0L
     private val sidecarWriter = ImageSidecarWriter()
 
+    private val markerPrefs by lazy { getSharedPreferences("phase15_marker_prefs", MODE_PRIVATE) }
+
     private val resultStore = CaptureResultStore()
     private var cameraController: CameraController? = null
 
     // Step 8 (stub)
-    private val markerDetector: MarkerDetector = StubMarkerDetector()
+    private val markerDetector: MarkerDetector by lazy { BoofCvAprilTag36h11Detector(this) }
+    private var lastMarkerStatus: MarkerStatus = MarkerStatus()
 
     private val captureResolution = Size(1920, 1080)
 
@@ -111,6 +117,7 @@ class CaptureActivity : AppCompatActivity() {
         initTransferUi()
 
         initAdvancedPanelUi()
+        initMarkerUi()
         binding.blockCaptureSwitch.setOnCheckedChangeListener { _, _ ->
             updateCaptureEnabled()
         }
@@ -125,8 +132,7 @@ class CaptureActivity : AppCompatActivity() {
             cam.cameraControl.enableTorch(isChecked)
         }
 
-        // Session starts automatically from Home-provided metadata.
-        startSessionFromIntentOrExit()
+        binding.startSessionButton.setOnClickListener { startSessionFromUi() }
 
         binding.lockButton.setOnClickListener {
             // Lock AE/AWB + optionally hold focus at the current settled distance.
@@ -161,24 +167,40 @@ class CaptureActivity : AppCompatActivity() {
         updateMarkerUi()
     }
 
-    private fun updateMarkerUi() {
-        binding.markersText.text = markerDetector.latest().displayText
+    private fun updateMarkerUi(status: MarkerStatus = markerDetector.latest()) {
+        binding.markersText.text = status.displayText
+        binding.markerGuidanceText.text = status.guidanceText
     }
 
-    private fun startSessionFromIntentOrExit() {
-        if (sessionManager.isSessionActive()) return
 
-        val doctor = intent.getStringExtra(EXTRA_DOCTOR_NAME)?.trim().orEmpty()
-        val patientName = intent.getStringExtra(EXTRA_PATIENT_NAME)?.trim().orEmpty()
-        val patientId = intent.getStringExtra(EXTRA_PATIENT_ID)?.trim().orEmpty()
+    private fun buildMarkerSidecar(status: MarkerStatus): Map<String, Any?> {
+        // Keep deterministic structure for reproducibility
+        val detList = status.detections.map { d ->
+            linkedMapOf(
+                "id" to d.id,
+                "center" to listOf(d.centerX, d.centerY),
+                "quality" to d.quality
+            )
+        }
+        return linkedMapOf(
+            "mode" to status.mode.name,
+            "dictionary" to "APRILTAG_36h11",
+            "requiredIds" to status.requiredIds,
+            "missingRequiredIds" to status.missingRequiredIds,
+            "detectedIds" to status.detectedIds,
+            "allRequiredVisible" to status.allRequiredVisible,
+            "framingOk" to status.framingOk,
+            "detections" to detList
+        )
+    }
+
+    private fun startSessionFromUi() {
+        val doctor = binding.doctorNameEdit.text?.toString()?.trim().orEmpty()
+        val patientName = binding.patientNameEdit.text?.toString()?.trim().orEmpty()
+        val patientId = binding.patientIdEdit.text?.toString()?.trim().orEmpty()
 
         if (patientId.isBlank()) {
-            Toast.makeText(this, "Patient ID missing. Start Capture from Home.", Toast.LENGTH_LONG).show()
-            val i = Intent(this@CaptureActivity, MainActivity::class.java).apply {
-                addFlags(Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_SINGLE_TOP)
-            }
-            startActivity(i)
-            finish()
+            Toast.makeText(this, "Enter Patient ID", Toast.LENGTH_SHORT).show()
             return
         }
 
@@ -190,6 +212,7 @@ class CaptureActivity : AppCompatActivity() {
                 patientId = patientId
             )
         )
+
         writeManifest()
         updateUi()
     }
@@ -203,6 +226,19 @@ class CaptureActivity : AppCompatActivity() {
         if (binding.blockCaptureSwitch.isChecked && lastQualityStatus != QualityStatus.OK) {
             Toast.makeText(this, "Image quality not OK: $lastQualityStatus", Toast.LENGTH_SHORT).show()
             return
+        }
+
+        val markerMode = lastMarkerStatus.mode
+        if (markerMode == MarkerMode.BLOCK) {
+            if (!lastMarkerStatus.allRequiredVisible) {
+                val miss = if (lastMarkerStatus.missingRequiredIds.isEmpty()) "unknown" else lastMarkerStatus.missingRequiredIds.joinToString(",")
+                Toast.makeText(this, "Missing required markers: $miss", Toast.LENGTH_SHORT).show()
+                return
+            }
+            if (!lastMarkerStatus.framingOk) {
+                Toast.makeText(this, "Reframe: keep markers away from edges", Toast.LENGTH_SHORT).show()
+                return
+            }
         }
 
         val imageCapture = imageCapture ?: return
@@ -234,7 +270,8 @@ class CaptureActivity : AppCompatActivity() {
             sessionName = sessionManager.getSessionName(),
             doctorName = sessionManager.getSessionMeta()?.doctorName,
             patientName = sessionManager.getSessionMeta()?.patientName,
-            patientId = sessionManager.getSessionMeta()?.patientId
+            patientId = sessionManager.getSessionMeta()?.patientId,
+            markerSummary = buildMarkerSidecar(lastMarkerStatus)
         )
 
         imageCapture.takePicture(
@@ -299,6 +336,66 @@ class CaptureActivity : AppCompatActivity() {
         }
     }
 
+
+    private fun initMarkerUi() {
+        val modes = listOf("OFF", "WARN", "BLOCK")
+        val adapter = ArrayAdapter(this, android.R.layout.simple_spinner_item, modes).apply {
+            setDropDownViewResource(android.R.layout.simple_spinner_dropdown_item)
+        }
+        binding.markerModeSpinner.adapter = adapter
+
+        val savedMode = markerPrefs.getString("marker_mode", "OFF") ?: "OFF"
+        val modeIndex = modes.indexOf(savedMode).let { if (it < 0) 0 else it }
+        binding.markerModeSpinner.setSelection(modeIndex)
+
+        val modeEnum = try { MarkerMode.valueOf(savedMode) } catch (_: Exception) { MarkerMode.OFF }
+        markerDetector.setMode(modeEnum)
+
+        val savedIds = markerPrefs.getString("required_tag_ids", "") ?: ""
+        binding.requiredTagIdsEdit.setText(savedIds)
+        markerDetector.setRequiredIds(parseRequiredIds(savedIds))
+
+        binding.markerModeSpinner.onItemSelectedListener = object : AdapterView.OnItemSelectedListener {
+            override fun onItemSelected(parent: AdapterView<*>?, view: View?, position: Int, id: Long) {
+                val sel = modes.getOrNull(position) ?: "OFF"
+                val m = try { MarkerMode.valueOf(sel) } catch (_: Exception) { MarkerMode.OFF }
+                markerPrefs.edit().putString("marker_mode", m.name).apply()
+                markerDetector.setMode(m)
+                updateMarkerUi()
+                updateCaptureEnabled()
+            }
+            override fun onNothingSelected(parent: AdapterView<*>?) {}
+        }
+
+        binding.requiredTagIdsEdit.setOnFocusChangeListener { _, hasFocus ->
+            if (!hasFocus) applyRequiredIdsFromUi()
+        }
+        binding.requiredTagIdsEdit.setOnEditorActionListener { _, actionId, _ ->
+            if (actionId == EditorInfo.IME_ACTION_DONE) {
+                applyRequiredIdsFromUi()
+                true
+            } else false
+        }
+
+        updateMarkerUi()
+    }
+
+    private fun applyRequiredIdsFromUi() {
+        val txt = binding.requiredTagIdsEdit.text?.toString()?.trim().orEmpty()
+        markerPrefs.edit().putString("required_tag_ids", txt).apply()
+        markerDetector.setRequiredIds(parseRequiredIds(txt))
+        updateMarkerUi()
+        updateCaptureEnabled()
+    }
+
+    private fun parseRequiredIds(text: String): List<Long> {
+        if (text.isBlank()) return emptyList()
+        return text.split(",")
+            .mapNotNull { it.trim().takeIf { t -> t.isNotEmpty() } }
+            .mapNotNull { it.toLongOrNull() }
+            .distinct()
+            .sorted()
+    }
 
 
     private fun initTransferUi() {
@@ -594,11 +691,17 @@ class CaptureActivity : AppCompatActivity() {
     private fun writeManifest() {
         val sessionInfo = sessionManager.getSessionInfo().toMutableMap()
         sessionInfo["chosenResolution"] = "${captureResolution.width}x${captureResolution.height}"
+        sessionInfo["markerSystem"] = buildMarkerSystem()
+        sessionInfo["markerSummary"] = markerDetector.sessionSummaryMap()
         manifestWriter.writeManifest(sessionInfo, sessionManager.getSessionDirectory())
     }
 
     private fun updateUi() {
         val active = sessionManager.isSessionActive()
+
+        binding.setupCard.visibility = if (active) android.view.View.GONE else android.view.View.VISIBLE
+
+        binding.startSessionButton.isEnabled = !active
         binding.lockButton.isEnabled = active
         binding.captureButton.isEnabled = active
         binding.endSessionButton.isEnabled = active
@@ -626,7 +729,9 @@ class CaptureActivity : AppCompatActivity() {
         val active = sessionManager.isSessionActive()
         val block = binding.blockCaptureSwitch.isChecked
         val ok = lastQualityStatus == QualityStatus.OK
-        binding.captureButton.isEnabled = active && (!block || ok)
+        val markerBlock = lastMarkerStatus.mode == MarkerMode.BLOCK
+        val markerOk = if (markerBlock) (lastMarkerStatus.allRequiredVisible && lastMarkerStatus.framingOk) else true
+        binding.captureButton.isEnabled = active && (!block || ok) && (!markerBlock || markerOk)
     }
 
     private fun updateExportEnabled() {
@@ -663,6 +768,11 @@ class CaptureActivity : AppCompatActivity() {
                 QualityAnalyzer(
                     resultStore = resultStore,
                     targetFps = 12,
+                    markerDetector = markerDetector,
+                    onMarkerResult = { status ->
+                        lastMarkerStatus = status
+                        runOnUiThread { updateMarkerUi(status) }
+                    },
                     onResult = { result -> runOnUiThread { updateQualityUi(result) } }
                 )
             )
@@ -775,10 +885,6 @@ class CaptureActivity : AppCompatActivity() {
     }
 
     companion object {
-        const val EXTRA_DOCTOR_NAME = "extra_doctor_name"
-        const val EXTRA_PATIENT_NAME = "extra_patient_name"
-        const val EXTRA_PATIENT_ID = "extra_patient_id"
-
         private const val TAG = "CaptureActivity"
         private const val REQUEST_CODE_PERMISSIONS = 10
 

@@ -24,7 +24,10 @@ data class ImageSidecarMetadata(
     val doctorName: String? = null,
     val patientName: String? = null,
     val patientId: String? = null,
-    val calibrationTargetDistanceCm: Int? = null
+    val calibrationTargetDistanceCm: Int? = null,
+
+    // Phase 1.5 markers (optional)
+    val markerSummary: Any? = null
 ) {
     val timestampIso: String = Instant.ofEpochMilli(timestampMs).toString()
 }
@@ -77,10 +80,48 @@ class ImageSidecarWriter {
         kvNullableString(sb, "patientName", m.patientName, comma = true)
         kvNullableString(sb, "patientId", m.patientId, comma = true)
 
-        kvInt(sb, "calibrationTargetDistanceCm", m.calibrationTargetDistanceCm, comma = false)
+        kvInt(sb, "calibrationTargetDistanceCm", m.calibrationTargetDistanceCm, comma = true)
+        kvAny(sb, "markerSummary", m.markerSummary, comma = false)
 
         sb.append("\n}")
         return sb.toString()
+    }
+
+
+    private fun kvAny(sb: StringBuilder, key: String, value: Any?, comma: Boolean) {
+        sb.append("  \"").append(esc(key)).append("\": ")
+        writeAny(sb, value, indent = "  ")
+        if (comma) sb.append(",")
+        sb.append("\n")
+    }
+
+    private fun writeAny(sb: StringBuilder, value: Any?, indent: String) {
+        when (value) {
+            null -> sb.append("null")
+            is String -> sb.append("\"").append(esc(value)).append("\"")
+            is Boolean, is Int, is Long, is Double, is Float -> sb.append(value.toString())
+            is Map<*, *> -> {
+                sb.append("{\n")
+                val entries = value.entries.toList()
+                for ((i, e) in entries.withIndex()) {
+                    val k = e.key?.toString() ?: "null"
+                    sb.append(indent).append("  \"").append(esc(k)).append("\": ")
+                    writeAny(sb, e.value, indent + "  ")
+                    if (i != entries.size - 1) sb.append(",")
+                    sb.append("\n")
+                }
+                sb.append(indent).append("}")
+            }
+            is List<*> -> {
+                sb.append("[")
+                for (i in value.indices) {
+                    if (i > 0) sb.append(", ")
+                    writeAny(sb, value[i], indent)
+                }
+                sb.append("]")
+            }
+            else -> sb.append("\"").append(esc(value.toString())).append("\"")
+        }
     }
 
     // ---- Writers (unique JVM signatures) ----

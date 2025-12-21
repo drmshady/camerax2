@@ -27,11 +27,11 @@ android {
         }
     }
     compileOptions {
-        sourceCompatibility = JavaVersion.VERSION_1_8
-        targetCompatibility = JavaVersion.VERSION_1_8
+        sourceCompatibility = JavaVersion.VERSION_11
+        targetCompatibility = JavaVersion.VERSION_11
     }
     kotlinOptions {
-        jvmTarget = "1.8"
+        jvmTarget = "11"
     }
     buildFeatures {
         viewBinding = true
@@ -49,7 +49,11 @@ dependencies {
     implementation("androidx.camera:camera-lifecycle:1.5.2")
     implementation("androidx.camera:camera-view:1.5.2")
 
-    // Guava (FutureCallback etc.)
+    
+    // BoofCV for AprilTag-like fiducials (APRILTAG_36h11)
+    implementation("org.boofcv:boofcv-android:1.2.4")
+    implementation("org.boofcv:boofcv-recognition:1.2.4")
+// Guava (FutureCallback etc.)
     implementation("com.google.guava:guava:33.2.1-android")
 
     // Coroutines + lifecycleScope
