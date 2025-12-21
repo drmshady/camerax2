@@ -9,6 +9,7 @@ import boofcv.factory.fiducial.HammingDictionary
 import boofcv.struct.image.GrayU8
 import georegression.struct.point.Point2D_F64
 import georegression.struct.shapes.Polygon2D_F64
+import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.atomic.AtomicReference
 import kotlin.math.max
 
@@ -25,6 +26,8 @@ data class TagDetection(
 data class MarkerStatus(
     val timestampNs: Long = 0L,
     val mode: MarkerMode = MarkerMode.OFF,
+    val frameWidth: Int = 0,
+    val frameHeight: Int = 0,
     val detectedCount: Int = 0,
     val detectedIds: List<Long> = emptyList(),
     val detections: List<TagDetection> = emptyList(),
@@ -65,7 +68,7 @@ class BoofCvAprilTag36h11Detector(
     context: Context,
     private val roiFrac: Double = 0.60,       // center ROI fraction
     private val downsampleStep: Int = 2,      // 2 => quarter pixels
-    private val edgeMarginFrac: Double = 0.08 // framing check margin
+    private val edgeMarginFrac: Double = 0.10 // framing check margin
 ) : MarkerDetector {
 
     private val appContext = context.applicationContext
@@ -111,7 +114,7 @@ class BoofCvAprilTag36h11Detector(
         val localMode = mode
         if (localMode == MarkerMode.OFF) {
             // Still update timestamp so logs can confirm it's running
-            latestRef.set(MarkerStatus(timestampNs = image.imageInfo.timestamp, mode = MarkerMode.OFF))
+            latestRef.set(MarkerStatus(timestampNs = image.imageInfo.timestamp, mode = MarkerMode.OFF, frameWidth = image.width, frameHeight = image.height))
             return
         }
 
@@ -129,6 +132,8 @@ class BoofCvAprilTag36h11Detector(
                 MarkerStatus(
                     timestampNs = timestamp,
                     mode = localMode,
+                    frameWidth = width,
+                    frameHeight = height,
                     guidanceText = "Marker: unsupported format",
                     displayText = "Marker: unsupported format"
                 )
@@ -227,13 +232,26 @@ class BoofCvAprilTag36h11Detector(
             framesAllRequiredVisible += 1L
         }
 
-        // Framing check: keep detected tag centers away from the full-image edges
-        val marginX = (width * edgeMarginFrac).toInt()
-        val marginY = (height * edgeMarginFrac).toInt()
-        val framingOk = detections.all { d ->
-            d.centerX >= marginX && d.centerX <= (width - marginX) &&
-            d.centerY >= marginY && d.centerY <= (height - marginY)
+        // Framing check: keep detected tag corners away from the full-image edges
+        val marginX = (width * edgeMarginFrac).toDouble()
+        val marginY = (height * edgeMarginFrac).toDouble()
+        val framingOk = if (detections.isEmpty()) {
+            true
+        } else {
+            detections.all { d ->
+                val corners = d.corners ?: emptyList()
+                if (corners.isNotEmpty()) {
+                    corners.all { (cx, cy) ->
+                        cx >= marginX && cx <= (width - marginX) &&
+                        cy >= marginY && cy <= (height - marginY)
+                    }
+                } else {
+                    d.centerX >= marginX && d.centerX <= (width - marginX) &&
+                    d.centerY >= marginY && d.centerY <= (height - marginY)
+                }
+            }
         }
+
 
         val guidance = buildGuidanceText(total, required, missing, framingOk)
         val display = buildDisplayText(total, ids, required, missing, framingOk)
@@ -242,6 +260,8 @@ class BoofCvAprilTag36h11Detector(
             MarkerStatus(
                 timestampNs = timestamp,
                 mode = localMode,
+                frameWidth = width,
+                frameHeight = height,
                 detectedCount = total,
                 detectedIds = ids.sorted(),
                 detections = detections,

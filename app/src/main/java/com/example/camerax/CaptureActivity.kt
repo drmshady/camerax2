@@ -76,6 +76,19 @@ class CaptureActivity : AppCompatActivity() {
     // Step 8 (stub)
     private val markerDetector: MarkerDetector by lazy { BoofCvAprilTag36h11Detector(this) }
     private var lastMarkerStatus: MarkerStatus = MarkerStatus()
+    private val captureGuidanceTracker = CaptureGuidanceTracker(
+        stableIdsN = 8,
+        distanceMinCm = 20.0,
+        distanceMaxCm = 30.0,
+        edgeMarginFrac = 0.10,
+        goodCapturesTarget = 60,
+        perTagTarget = 10,
+        gridTargetFilled = 7,
+        crossArchRequired = true
+    )
+
+    private var lastAppliedRequiredIds: List<Long> = emptyList()
+
 
     private val captureResolution = Size(1920, 1080)
 
@@ -169,9 +182,28 @@ class CaptureActivity : AppCompatActivity() {
 
     private fun updateMarkerUi(status: MarkerStatus = markerDetector.latest()) {
         binding.markersText.text = status.displayText
-        binding.markerGuidanceText.text = status.guidanceText
-    }
 
+        // Keep preview area clean: guidance is text-only.
+        // If marker detection is OFF, show the existing OFF message.
+        if (status.mode == MarkerMode.OFF) {
+            binding.markerGuidanceText.text = status.guidanceText
+            return
+        }
+
+        val markerSummary = markerDetector.sessionSummaryMap()
+        val g = captureGuidanceTracker.buildLiveGuidance(
+            markerStatus = status,
+            quality = lastQualityResult,
+            markerSessionSummary = markerSummary
+        )
+
+        val lines = ArrayList<String>(4)
+        lines.add(g.message)
+        lines.add(g.phaseProgress)
+        lines.add(g.coverageText)
+        if (g.enough) lines.add("Enough ✅")
+        binding.markerGuidanceText.text = lines.joinToString("/n")
+    }
 
     private fun buildMarkerSidecar(status: MarkerStatus): Map<String, Any?> {
         // Keep deterministic structure for reproducibility
@@ -213,6 +245,9 @@ class CaptureActivity : AppCompatActivity() {
             )
         )
 
+        markerDetector.reset()
+        captureGuidanceTracker.resetForNewSession()
+
         writeManifest()
         updateUi()
     }
@@ -239,6 +274,11 @@ class CaptureActivity : AppCompatActivity() {
                 Toast.makeText(this, "Reframe: keep markers away from edges", Toast.LENGTH_SHORT).show()
                 return
             }
+            val dist = lastQualityResult.distanceCm
+            if (dist != null && (dist < 20.0 || dist > 30.0)) {
+                Toast.makeText(this, "Distance out of range: ${"%.1f".format(dist)} cm", Toast.LENGTH_SHORT).show()
+                return
+            }
         }
 
         val imageCapture = imageCapture ?: return
@@ -253,6 +293,21 @@ class CaptureActivity : AppCompatActivity() {
             if (q.status == QualityStatus.OVER) add("OVER")
             if (q.status == QualityStatus.UNDER) add("UNDER")
         }
+
+        // Deterministic snapshot at shutter press (do NOT use "latest" later)
+        val markerSnapshot = GuidanceCommon.frozenFromMarkerStatus(lastMarkerStatus)
+        val qualitySnapshot = GuidanceCommon.FrozenQualitySnapshot(
+            status = q.status,
+            blurScore = q.blurScore,
+            exposureFlags = exposureFlags.toList(),
+            distanceCm = q.distanceCm
+        )
+        val markerSessionSummaryAtCapture = markerDetector.sessionSummaryMap()
+        val markerSidecarSummary = captureGuidanceTracker.buildSidecarMarkerSummary(
+            markerSnapshot = markerSnapshot,
+            qualitySnapshot = qualitySnapshot,
+            markerSessionSummary = markerSessionSummaryAtCapture
+        )
 
         val meta = ImageSidecarMetadata(
             timestampMs = tsMs,
@@ -286,10 +341,15 @@ class CaptureActivity : AppCompatActivity() {
                     Toast.makeText(this@CaptureActivity, "Saved: ${photoFile.name}", Toast.LENGTH_SHORT).show()
 
                     cameraExecutor.execute {
+                        // Update capture guidance stats deterministically on saved image
+                        captureGuidanceTracker.onCaptureSaved(
+                            markerSnapshot = markerSnapshot,
+                            qualitySnapshot = qualitySnapshot,
+                            markerSessionSummary = markerSessionSummaryAtCapture
+                        )
                         sidecarWriter.writeSidecarJson(photoFile, meta)
+                        writeManifest()
                     }
-
-                    writeManifest()
                 }
             }
         )
@@ -344,7 +404,7 @@ class CaptureActivity : AppCompatActivity() {
         }
         binding.markerModeSpinner.adapter = adapter
 
-        val savedMode = markerPrefs.getString("marker_mode", "OFF") ?: "OFF"
+        val savedMode = markerPrefs.getString("marker_mode", "WARN") ?: "WARN"
         val modeIndex = modes.indexOf(savedMode).let { if (it < 0) 0 else it }
         binding.markerModeSpinner.setSelection(modeIndex)
 
@@ -353,7 +413,10 @@ class CaptureActivity : AppCompatActivity() {
 
         val savedIds = markerPrefs.getString("required_tag_ids", "") ?: ""
         binding.requiredTagIdsEdit.setText(savedIds)
-        markerDetector.setRequiredIds(parseRequiredIds(savedIds))
+        val initialIds = parseRequiredIds(savedIds)
+        markerDetector.setRequiredIds(initialIds)
+        lastAppliedRequiredIds = initialIds
+        captureGuidanceTracker.onRequiredIdsChanged(initialIds)
 
         binding.markerModeSpinner.onItemSelectedListener = object : AdapterView.OnItemSelectedListener {
             override fun onItemSelected(parent: AdapterView<*>?, view: View?, position: Int, id: Long) {
@@ -383,7 +446,12 @@ class CaptureActivity : AppCompatActivity() {
     private fun applyRequiredIdsFromUi() {
         val txt = binding.requiredTagIdsEdit.text?.toString()?.trim().orEmpty()
         markerPrefs.edit().putString("required_tag_ids", txt).apply()
-        markerDetector.setRequiredIds(parseRequiredIds(txt))
+        val ids = parseRequiredIds(txt)
+        markerDetector.setRequiredIds(ids)
+        if (ids != lastAppliedRequiredIds) {
+            lastAppliedRequiredIds = ids
+            captureGuidanceTracker.onRequiredIdsChanged(ids)
+        }
         updateMarkerUi()
         updateCaptureEnabled()
     }
@@ -692,7 +760,9 @@ class CaptureActivity : AppCompatActivity() {
         val sessionInfo = sessionManager.getSessionInfo().toMutableMap()
         sessionInfo["chosenResolution"] = "${captureResolution.width}x${captureResolution.height}"
         sessionInfo["markerSystem"] = buildMarkerSystem()
-        sessionInfo["markerSummary"] = markerDetector.sessionSummaryMap()
+        val markerSummary = markerDetector.sessionSummaryMap()
+        sessionInfo["markerSummary"] = markerSummary
+        sessionInfo["captureGuidanceSummary"] = captureGuidanceTracker.buildManifestSummary(markerSummary)
         manifestWriter.writeManifest(sessionInfo, sessionManager.getSessionDirectory())
     }
 

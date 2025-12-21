@@ -77,6 +77,15 @@ class CalibrationActivity : AppCompatActivity() {
     // Step 8 (stub)
     private val markerDetector: MarkerDetector by lazy { BoofCvAprilTag36h11Detector(this) }
     private var lastMarkerStatus: MarkerStatus = MarkerStatus()
+    private val calibrationGuidanceTracker = CalibrationGuidanceTracker(
+        distanceTargetCm = 25.0,
+        distanceMinCm = 20.0,
+        distanceMaxCm = 30.0,
+        edgeMarginFrac = 0.10,
+        goodCapturesTarget = 25,
+        gridTargetFilled = 8
+    )
+
 
     private val captureResolution = Size(1920, 1080)
 
@@ -184,9 +193,21 @@ class CalibrationActivity : AppCompatActivity() {
 
     private fun updateMarkerUi(status: MarkerStatus = markerDetector.latest()) {
         binding.markersText.text = status.displayText
-        binding.markerGuidanceText.text = status.guidanceText
-    }
 
+        if (status.mode == MarkerMode.OFF) {
+            binding.markerGuidanceText.text = status.guidanceText
+            return
+        }
+
+        val g = calibrationGuidanceTracker.buildLiveGuidance(status, lastQualityResult)
+
+        val lines = ArrayList<String>(3)
+        lines.add(g.message)
+        lines.add(g.progress)
+        lines.add(g.coverageText)
+        if (g.enough) lines.add("Enough ✅")
+        binding.markerGuidanceText.text = lines.joinToString("\n")
+    }
 
     private fun buildMarkerSidecar(status: MarkerStatus): Map<String, Any?> {
         // Keep deterministic structure for reproducibility
@@ -224,6 +245,9 @@ class CalibrationActivity : AppCompatActivity() {
             )
         )
 
+        markerDetector.reset()
+        calibrationGuidanceTracker.resetForNewSession()
+
         writeManifest()
         updateUi()
         updateCalibrationHint()
@@ -251,6 +275,11 @@ class CalibrationActivity : AppCompatActivity() {
                 Toast.makeText(this, "Reframe: keep markers away from edges", Toast.LENGTH_SHORT).show()
                 return
             }
+            val dist = lastQualityResult.distanceCm
+            if (dist != null && (dist < 20.0 || dist > 30.0)) {
+                Toast.makeText(this, "Distance out of range: ${"%.1f".format(dist)} cm", Toast.LENGTH_SHORT).show()
+                return
+            }
         }
 
         val imageCapture = imageCapture ?: return
@@ -265,6 +294,18 @@ class CalibrationActivity : AppCompatActivity() {
             if (q.status == QualityStatus.OVER) add("OVER")
             if (q.status == QualityStatus.UNDER) add("UNDER")
         }
+
+        val markerSnapshot = GuidanceCommon.frozenFromMarkerStatus(lastMarkerStatus)
+        val qualitySnapshot = GuidanceCommon.FrozenQualitySnapshot(
+            status = q.status,
+            blurScore = q.blurScore,
+            exposureFlags = exposureFlags.toList(),
+            distanceCm = q.distanceCm
+        )
+        val markerSidecarSummary = calibrationGuidanceTracker.buildSidecarMarkerSummary(
+            markerSnapshot = markerSnapshot,
+            qualitySnapshot = qualitySnapshot
+        )
 
         val meta = ImageSidecarMetadata(
             timestampMs = tsMs,
@@ -296,10 +337,13 @@ class CalibrationActivity : AppCompatActivity() {
                     Toast.makeText(this@CalibrationActivity, "Saved: ${photoFile.name}", Toast.LENGTH_SHORT).show()
 
                     cameraExecutor.execute {
+                        calibrationGuidanceTracker.onCaptureSaved(
+                            markerSnapshot = markerSnapshot,
+                            qualitySnapshot = qualitySnapshot
+                        )
                         sidecarWriter.writeSidecarJson(photoFile, meta)
+                        writeManifest()
                     }
-
-                    writeManifest()
                 }
             }
         )
@@ -352,7 +396,7 @@ class CalibrationActivity : AppCompatActivity() {
         }
         binding.markerModeSpinner.adapter = adapter
 
-        val savedMode = markerPrefs.getString("marker_mode", "OFF") ?: "OFF"
+        val savedMode = markerPrefs.getString("marker_mode", "WARN") ?: "WARN"
         val modeIndex = modes.indexOf(savedMode).let { if (it < 0) 0 else it }
         binding.markerModeSpinner.setSelection(modeIndex)
 
@@ -706,7 +750,9 @@ class CalibrationActivity : AppCompatActivity() {
         val sessionInfo = sessionManager.getSessionInfo().toMutableMap()
         sessionInfo["chosenResolution"] = "${captureResolution.width}x${captureResolution.height}"
         sessionInfo["markerSystem"] = buildMarkerSystem()
-        sessionInfo["markerSummary"] = markerDetector.sessionSummaryMap()
+        val markerSummary = markerDetector.sessionSummaryMap()
+        sessionInfo["markerSummary"] = markerSummary
+        sessionInfo["calibrationGuidanceSummary"] = calibrationGuidanceTracker.buildManifestSummary()
         manifestWriter.writeManifest(sessionInfo, sessionManager.getSessionDirectory())
     }
 
