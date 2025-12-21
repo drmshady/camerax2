@@ -28,6 +28,7 @@
         app:layout_constraintStart_toStartOf="parent"
         app:layout_constraintEnd_toEndOf="parent" />
 
+    <!-- Capture card includes metadata inputs (moved from Capture screen) -->
     <com.google.android.material.card.MaterialCardView
         android:id="@+id/captureCard"
         android:layout_width="0dp"
@@ -56,8 +57,58 @@
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
                 android:layout_marginTop="6dp"
-                android:text="Photogrammetry capture with patient/doctor metadata + per-image sidecars."
+                android:text="Enter metadata here, then start capture. The Capture screen stays clean and camera-first."
                 android:alpha="0.8" />
+
+            <com.google.android.material.textfield.TextInputLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="12dp"
+                app:boxBackgroundMode="outline">
+
+                <com.google.android.material.textfield.TextInputEditText
+                    android:id="@+id/homeDoctorNameEdit"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:hint="Doctor name (optional)"
+                    android:inputType="textPersonName" />
+            </com.google.android.material.textfield.TextInputLayout>
+
+            <com.google.android.material.textfield.TextInputLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="10dp"
+                app:boxBackgroundMode="outline">
+
+                <com.google.android.material.textfield.TextInputEditText
+                    android:id="@+id/homePatientNameEdit"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:hint="Patient name (optional)"
+                    android:inputType="textPersonName" />
+            </com.google.android.material.textfield.TextInputLayout>
+
+            <com.google.android.material.textfield.TextInputLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="10dp"
+                app:boxBackgroundMode="outline">
+
+                <com.google.android.material.textfield.TextInputEditText
+                    android:id="@+id/homePatientIdEdit"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:hint="Patient ID (required)"
+                    android:inputType="text" />
+            </com.google.android.material.textfield.TextInputLayout>
+
+            <com.google.android.material.button.MaterialButton
+                android:id="@+id/startCaptureButton"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="12dp"
+                android:text="Start Capture" />
+
         </LinearLayout>
     </com.google.android.material.card.MaterialCardView>
 
@@ -89,7 +140,7 @@
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
                 android:layout_marginTop="6dp"
-                android:text="Capture calibration frames at multiple working distances (no patient metadata)."
+                android:text="Capture calibration frames at multiple working distances."
                 android:alpha="0.8" />
         </LinearLayout>
     </com.google.android.material.card.MaterialCardView>
@@ -114,7 +165,7 @@
             <TextView
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
-                android:text="Calibration Instructions"
+                android:text="Instructions"
                 android:textStyle="bold"
                 android:textSize="18sp" />
 
@@ -122,7 +173,7 @@
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
                 android:layout_marginTop="6dp"
-                android:text="Best practices (distance, stability, lighting, blur/exposure)."
+                android:text="Best practices (distance, stability, lighting, locking, markers)."
                 android:alpha="0.8" />
         </LinearLayout>
     </com.google.android.material.card.MaterialCardView>
@@ -131,10 +182,10 @@
         android:id="@+id/footerText"
         android:layout_width="0dp"
         android:layout_height="wrap_content"
-        android:text="Tip: Keep the phone steady, avoid motion blur, use torch if UNDER."
+        android:layout_marginTop="18dp"
+        android:text="Tip: Keep the phone steady. If you see UNDER, enable Torch."
         android:textSize="12sp"
         android:alpha="0.65"
-        android:layout_marginTop="18dp"
         app:layout_constraintTop_toBottomOf="@id/instructionsCard"
         app:layout_constraintStart_toStartOf="parent"
         app:layout_constraintEnd_toEndOf="parent" />

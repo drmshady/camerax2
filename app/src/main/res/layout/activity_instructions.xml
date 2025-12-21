@@ -13,7 +13,7 @@
         <TextView
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:text="Calibration Instructions"
+            android:text="Instructions"
             android:textStyle="bold"
             android:textSize="22sp" />
 
@@ -21,7 +21,7 @@
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:layout_marginTop="10dp"
-            android:text="Use Calibration to capture reference frames at multiple working distances (e.g., 15 cm, 20 cm, 25 cm, 30 cm)."
+            android:text="This app is optimized for consistent, reproducible photogrammetry capture. Keep sessions clean: steady phone, stable lighting, and consistent locks."
             android:alpha="0.85" />
 
         <com.google.android.material.card.MaterialCardView
@@ -40,14 +40,16 @@
                 <TextView
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
-                    android:text="Working Distance"
+                    android:text="Home screen metadata"
                     android:textStyle="bold" />
 
                 <TextView
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
                     android:layout_marginTop="6dp"
-                    android:text="• Choose a distance where the subject fills the frame without clipping.\n• Keep distance consistent across captures.\n• Use the on-screen distance estimate as guidance (best-effort)."
+                    android:text="• Enter Doctor / Patient info on the Home screen (Capture Session card).
+• Patient ID is required (used for session naming + logging).
+• Capture screen stays camera-first for speed and cleanliness."
                     android:alpha="0.85" />
             </LinearLayout>
         </com.google.android.material.card.MaterialCardView>
@@ -68,14 +70,47 @@
                 <TextView
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
-                    android:text="Stability (Avoid Blur)"
+                    android:text="Capture workflow"
                     android:textStyle="bold" />
 
                 <TextView
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
                     android:layout_marginTop="6dp"
-                    android:text="• Hold the phone with two hands.\n• Avoid moving during capture.\n• If you see ⚠️ BLUR, increase light or reduce motion."
+                    android:text="• Start Capture from Home (session starts automatically).
+• Tap Lock after the camera settles (locks exposure/white balance; focus is stabilized when possible).
+• Move around the target in small steps; avoid large jumps.
+• Prefer stable lighting; use Torch if frames are too dark."
+                    android:alpha="0.85" />
+            </LinearLayout>
+        </com.google.android.material.card.MaterialCardView>
+
+        <com.google.android.material.card.MaterialCardView
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="10dp"
+            app:cardCornerRadius="14dp"
+            app:cardUseCompatPadding="true">
+
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="vertical"
+                android:padding="14dp">
+
+                <TextView
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:text="Stability (avoid BLUR)"
+                    android:textStyle="bold" />
+
+                <TextView
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="6dp"
+                    android:text="• Hold the phone with two hands.
+• Avoid motion during capture.
+• If BLUR is detected, add light (Torch) and slow down."
                     android:alpha="0.85" />
             </LinearLayout>
         </com.google.android.material.card.MaterialCardView>
@@ -103,7 +138,9 @@
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
                     android:layout_marginTop="6dp"
-                    android:text="• If you see ⚠️ UNDER, enable Torch to reduce ISO.\n• If ⚠️ OVER, reduce ambient light or change angle.\n• Keep lighting stable across a session."
+                    android:text="• If frames are UNDER, enable Torch to reduce ISO and improve sharpness.
+• If frames are OVER, reduce ambient light or change angle.
+• Keep lighting stable across the session." 
                     android:alpha="0.85" />
             </LinearLayout>
         </com.google.android.material.card.MaterialCardView>
@@ -124,14 +161,46 @@
                 <TextView
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
-                    android:text="Locking"
+                    android:text="Calibration"
                     android:textStyle="bold" />
 
                 <TextView
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
                     android:layout_marginTop="6dp"
-                    android:text="• Tap Lock after the camera settles.\n• AE/AWB are locked (or manual exposure used), AF remains continuous.\n• This improves photogrammetry consistency."
+                    android:text="• Use Calibration to capture reference frames at multiple working distances (e.g., 15, 20, 25, 30 cm).
+• Keep the target fully in frame; avoid clipping.
+• Capture multiple angles at each distance." 
+                    android:alpha="0.85" />
+            </LinearLayout>
+        </com.google.android.material.card.MaterialCardView>
+
+        <com.google.android.material.card.MaterialCardView
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="10dp"
+            app:cardCornerRadius="14dp"
+            app:cardUseCompatPadding="true">
+
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="vertical"
+                android:padding="14dp">
+
+                <TextView
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:text="Markers (Phase 1.5)"
+                    android:textStyle="bold" />
+
+                <TextView
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="6dp"
+                    android:text="• Marker detection is configured in Advanced on Capture/Calibration screens.
+• Minimal goal: show detected IDs in the HUD and optionally block capture if required markers are missing.
+• Keep markers away from edges; center them for best accuracy." 
                     android:alpha="0.85" />
             </LinearLayout>
         </com.google.android.material.card.MaterialCardView>

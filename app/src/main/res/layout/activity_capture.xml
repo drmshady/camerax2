@@ -15,35 +15,34 @@
         app:layout_constraintStart_toStartOf="parent"
         app:layout_constraintEnd_toEndOf="parent" />
 
+    <!-- Minimal HUD (kept small to maximize preview) -->
     <com.google.android.material.card.MaterialCardView
         android:id="@+id/topStatusCard"
-        android:layout_width="0dp"
+        android:layout_width="wrap_content"
         android:layout_height="wrap_content"
         android:layout_margin="12dp"
         app:cardCornerRadius="14dp"
         app:cardBackgroundColor="#80000000"
         app:cardUseCompatPadding="true"
         app:layout_constraintTop_toTopOf="parent"
-        app:layout_constraintStart_toStartOf="parent"
-        app:layout_constraintEnd_toEndOf="parent">
+        app:layout_constraintStart_toStartOf="parent">
 
         <LinearLayout
-            android:layout_width="match_parent"
+            android:layout_width="wrap_content"
             android:layout_height="wrap_content"
             android:orientation="vertical"
             android:padding="10dp">
 
             <LinearLayout
-                android:layout_width="match_parent"
+                android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
                 android:orientation="horizontal">
 
                 <TextView
                     android:id="@+id/qualityStatusText"
-                    android:layout_width="0dp"
+                    android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
-                    android:layout_weight="1"
-                    android:text="✅ OK"
+                    android:text="OK"
                     android:textColor="@android:color/white"
                     android:textStyle="bold" />
 
@@ -51,50 +50,21 @@
                     android:id="@+id/distanceText"
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
+                    android:layout_marginStart="10dp"
                     android:text="Distance: N/A"
-                    android:textColor="@android:color/white" />
+                    android:textColor="@android:color/white"
+                    android:alpha="0.9" />
             </LinearLayout>
 
-            <!-- Step 8: Marker counter (stub) -->
             <TextView
                 android:id="@+id/markersText"
-                android:layout_width="match_parent"
+                android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
                 android:layout_marginTop="6dp"
-                android:text="Markers detected: N/A"
+                android:text="Markers: OFF"
                 android:textColor="@android:color/white"
                 android:alpha="0.9" />
 
-            <LinearLayout
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:orientation="horizontal"
-                android:layout_marginTop="6dp">
-
-                <TextView
-                    android:id="@+id/afLockStatus"
-                    android:layout_width="0dp"
-                    android:layout_height="wrap_content"
-                    android:layout_weight="1"
-                    android:text="AF: —"
-                    android:textColor="@android:color/white" />
-
-                <TextView
-                    android:id="@+id/aeLockStatus"
-                    android:layout_width="0dp"
-                    android:layout_height="wrap_content"
-                    android:layout_weight="1"
-                    android:text="AE: —"
-                    android:textColor="@android:color/white" />
-
-                <TextView
-                    android:id="@+id/awbLockStatus"
-                    android:layout_width="0dp"
-                    android:layout_height="wrap_content"
-                    android:layout_weight="1"
-                    android:text="WB: —"
-                    android:textColor="@android:color/white" />
-            </LinearLayout>
         </LinearLayout>
     </com.google.android.material.card.MaterialCardView>
 
@@ -103,7 +73,7 @@
         android:layout_width="0dp"
         android:layout_height="wrap_content"
         android:layout_margin="12dp"
-        app:cardCornerRadius="16dp"
+        app:cardCornerRadius="18dp"
         app:cardUseCompatPadding="true"
         app:cardBackgroundColor="#CC111111"
         app:layout_constraintBottom_toBottomOf="parent"
@@ -116,50 +86,11 @@
             android:orientation="vertical"
             android:padding="12dp">
 
+            <!-- Primary controls -->
             <LinearLayout
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
                 android:orientation="horizontal">
-
-                <TextView
-                    android:layout_width="wrap_content"
-                    android:layout_height="wrap_content"
-                    android:text="Warn only / Block capture"
-                    android:textColor="@android:color/white"
-                    android:alpha="0.85" />
-
-                <Switch
-                    android:id="@+id/blockCaptureSwitch"
-                    android:layout_width="wrap_content"
-                    android:layout_height="wrap_content"
-                    android:layout_marginStart="12dp" />
-            </LinearLayout>
-
-            <LinearLayout
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:layout_marginTop="6dp"
-                android:orientation="horizontal">
-
-                <TextView
-                    android:layout_width="wrap_content"
-                    android:layout_height="wrap_content"
-                    android:text="Torch"
-                    android:textColor="@android:color/white"
-                    android:alpha="0.85" />
-
-                <Switch
-                    android:id="@+id/torchSwitch"
-                    android:layout_width="wrap_content"
-                    android:layout_height="wrap_content"
-                    android:layout_marginStart="12dp" />
-            </LinearLayout>
-
-            <LinearLayout
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:orientation="horizontal"
-                android:layout_marginTop="10dp">
 
                 <com.google.android.material.button.MaterialButton
                     android:id="@+id/lockButton"
@@ -187,45 +118,41 @@
                     android:text="End" />
             </LinearLayout>
 
-                        <TextView
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:layout_marginTop="10dp"
-                android:text="Calibration Profile"
-                android:textColor="@android:color/white"
-                android:textStyle="bold" />
-
-            <Spinner
-                android:id="@+id/calibrationProfileSpinner"
+            <!-- Small row: Torch + Advanced toggle -->
+            <LinearLayout
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
-                android:layout_marginTop="6dp"
-                android:spinnerMode="dropdown" />
+                android:layout_marginTop="8dp"
+                android:orientation="horizontal"
+                android:gravity="center_vertical">
 
-            <com.google.android.material.switchmaterial.SwitchMaterial
-                android:id="@+id/stabilizeCaptureFocusSwitch"
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:layout_marginTop="6dp"
-                android:text="Stabilize focus (AF lock)"
-                android:textColor="@android:color/white" />
+                <TextView
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="Torch"
+                    android:textColor="@android:color/white"
+                    android:alpha="0.85" />
 
-            <com.google.android.material.switchmaterial.SwitchMaterial
-                android:id="@+id/useCalFocusSwitch"
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:layout_marginTop="2dp"
-                android:text="Use calibration focus distance (experimental)"
-                android:textColor="@android:color/white" />
+                <Switch
+                    android:id="@+id/torchSwitch"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:layout_marginStart="10dp" />
 
-            <com.google.android.material.button.MaterialButton
-                android:id="@+id/advancedToggleButton"
-                style="?attr/materialButtonOutlinedStyle"
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:layout_marginTop="10dp"
-                android:text="Advanced ▾" />
+                <View
+                    android:layout_width="0dp"
+                    android:layout_height="0dp"
+                    android:layout_weight="1" />
 
+                <com.google.android.material.button.MaterialButton
+                    android:id="@+id/advancedToggleButton"
+                    style="?attr/materialButtonOutlinedStyle"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="Advanced ▾" />
+            </LinearLayout>
+
+            <!-- Advanced options (collapsed by default) -->
             <LinearLayout
                 android:id="@+id/advancedContainer"
                 android:layout_width="match_parent"
@@ -234,220 +161,221 @@
                 android:orientation="vertical"
                 android:visibility="gone">
 
-            <com.google.android.material.button.MaterialButton
-                android:id="@+id/exportSessionButton"
-                style="?attr/materialButtonOutlinedStyle"
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:layout_marginTop="10dp"
-                android:text="Export Session (.zip)" />
-
-            <!-- ===== Phase 2: PC Transfer (LAN) ===== -->
-            <LinearLayout
-                android:id="@+id/pcTransferPanel"
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:layout_marginTop="10dp"
-                android:orientation="vertical">
-
                 <TextView
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
-                    android:text="PC Transfer (Wi‑Fi LAN)"
+                    android:text="Capture Options"
                     android:textColor="@android:color/white"
                     android:textStyle="bold"
                     android:alpha="0.9" />
 
-                <com.google.android.material.textfield.TextInputLayout
+                <LinearLayout
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
                     android:layout_marginTop="8dp"
-                    app:boxBackgroundMode="outline"
-                    app:boxStrokeColor="@android:color/white"
-                    app:hintTextColor="@android:color/white">
+                    android:orientation="horizontal"
+                    android:gravity="center_vertical">
 
-                    <com.google.android.material.textfield.TextInputEditText
-                        android:id="@+id/pcIpEdit"
-                        android:layout_width="match_parent"
+                    <TextView
+                        android:layout_width="0dp"
                         android:layout_height="wrap_content"
-                        android:hint="PC IP (e.g., 192.168.1.50)"
-                        android:inputType="text"
-                        android:textColor="@android:color/white" />
-                </com.google.android.material.textfield.TextInputLayout>
+                        android:layout_weight="1"
+                        android:text="Warn only / Block capture"
+                        android:textColor="@android:color/white"
+                        android:alpha="0.85" />
 
-                <com.google.android.material.textfield.TextInputLayout
-                    android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
-                    android:layout_marginTop="8dp"
-                    app:boxBackgroundMode="outline"
-                    app:boxStrokeColor="@android:color/white"
-                    app:hintTextColor="@android:color/white">
-
-                    <com.google.android.material.textfield.TextInputEditText
-                        android:id="@+id/pcPortEdit"
-                        android:layout_width="match_parent"
-                        android:layout_height="wrap_content"
-                        android:hint="Port (default 8080)"
-                        android:inputType="number"
-                        android:textColor="@android:color/white" />
-                </com.google.android.material.textfield.TextInputLayout>
-
-                <com.google.android.material.button.MaterialButton
-                    android:id="@+id/sendSessionButton"
-                    style="?attr/materialButtonOutlinedStyle"
-                    android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
-                    android:layout_marginTop="8dp"
-                    android:text="Send Current Session" />
-
-                <ProgressBar
-                    android:id="@+id/sendProgressBar"
-                    style="?android:attr/progressBarStyleHorizontal"
-                    android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
-                    android:layout_marginTop="8dp"
-                    android:indeterminate="false"
-                    android:max="100"
-                    android:progress="0"
-                    android:visibility="gone" />
+                    <Switch
+                        android:id="@+id/blockCaptureSwitch"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content" />
+                </LinearLayout>
 
                 <TextView
-                    android:id="@+id/sendStatusText"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="10dp"
+                    android:text="Calibration Profile"
+                    android:textColor="@android:color/white"
+                    android:textStyle="bold" />
+
+                <Spinner
+                    android:id="@+id/calibrationProfileSpinner"
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
                     android:layout_marginTop="6dp"
-                    android:text="Ready"
+                    android:spinnerMode="dropdown" />
+
+                <com.google.android.material.switchmaterial.SwitchMaterial
+                    android:id="@+id/stabilizeCaptureFocusSwitch"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="6dp"
+                    android:text="Stabilize focus (AF lock)"
+                    android:textColor="@android:color/white" />
+
+                <com.google.android.material.switchmaterial.SwitchMaterial
+                    android:id="@+id/useCalFocusSwitch"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="2dp"
+                    android:text="Use calibration focus distance (experimental)"
+                    android:textColor="@android:color/white" />
+
+                <TextView
+                    android:id="@+id/manualSensorSupport"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="10dp"
+                    android:text="Manual Sensor: —"
                     android:textColor="@android:color/white"
+                    android:textSize="12sp"
+                    android:alpha="0.75" />
+
+                <TextView
+                    android:id="@+id/manualFocusSupport"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:text="Manual Focus Distance: —"
+                    android:textColor="@android:color/white"
+                    android:textSize="12sp"
+                    android:alpha="0.75" />
+
+                <TextView
+                    android:id="@+id/manualWhiteBalanceSupport"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:text="AWB Lock: —"
+                    android:textColor="@android:color/white"
+                    android:textSize="12sp"
+                    android:alpha="0.75" />
+
+                <!-- Lock state details (moved out of HUD) -->
+                <TextView
+                    android:id="@+id/afLockStatus"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="10dp"
+                    android:text="AF: —"
+                    android:textColor="@android:color/white"
+                    android:textSize="12sp"
+                    android:alpha="0.85" />
+
+                <TextView
+                    android:id="@+id/aeLockStatus"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:text="AE: —"
+                    android:textColor="@android:color/white"
+                    android:textSize="12sp"
+                    android:alpha="0.85" />
+
+                <TextView
+                    android:id="@+id/awbLockStatus"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:text="WB: —"
+                    android:textColor="@android:color/white"
+                    android:textSize="12sp"
                     android:alpha="0.85" />
 
                 <com.google.android.material.button.MaterialButton
-                    android:id="@+id/cancelSendButton"
+                    android:id="@+id/exportSessionButton"
                     style="?attr/materialButtonOutlinedStyle"
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
-                    android:layout_marginTop="6dp"
-                    android:text="Cancel"
-                    android:visibility="gone" />
+                    android:layout_marginTop="12dp"
+                    android:text="Export Session (.zip)" />
+
+                <!-- Phase 2: PC Transfer (LAN) -->
+                <LinearLayout
+                    android:id="@+id/pcTransferPanel"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="12dp"
+                    android:orientation="vertical">
+
+                    <TextView
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:text="PC Transfer (Wi-Fi LAN)"
+                        android:textColor="@android:color/white"
+                        android:textStyle="bold"
+                        android:alpha="0.9" />
+
+                    <com.google.android.material.textfield.TextInputLayout
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:layout_marginTop="8dp"
+                        app:boxBackgroundMode="outline"
+                        app:boxStrokeColor="@android:color/white"
+                        app:hintTextColor="@android:color/white">
+
+                        <com.google.android.material.textfield.TextInputEditText
+                            android:id="@+id/pcIpEdit"
+                            android:layout_width="match_parent"
+                            android:layout_height="wrap_content"
+                            android:hint="PC IP (e.g., 192.168.1.50)"
+                            android:inputType="text"
+                            android:textColor="@android:color/white" />
+                    </com.google.android.material.textfield.TextInputLayout>
+
+                    <com.google.android.material.textfield.TextInputLayout
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:layout_marginTop="8dp"
+                        app:boxBackgroundMode="outline"
+                        app:boxStrokeColor="@android:color/white"
+                        app:hintTextColor="@android:color/white">
+
+                        <com.google.android.material.textfield.TextInputEditText
+                            android:id="@+id/pcPortEdit"
+                            android:layout_width="match_parent"
+                            android:layout_height="wrap_content"
+                            android:hint="Port (default 8080)"
+                            android:inputType="number"
+                            android:textColor="@android:color/white" />
+                    </com.google.android.material.textfield.TextInputLayout>
+
+                    <com.google.android.material.button.MaterialButton
+                        android:id="@+id/sendSessionButton"
+                        style="?attr/materialButtonOutlinedStyle"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:layout_marginTop="8dp"
+                        android:text="Send Current Session" />
+
+                    <ProgressBar
+                        android:id="@+id/sendProgressBar"
+                        style="?android:attr/progressBarStyleHorizontal"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:layout_marginTop="8dp"
+                        android:indeterminate="false"
+                        android:max="100"
+                        android:progress="0"
+                        android:visibility="gone" />
+
+                    <TextView
+                        android:id="@+id/sendStatusText"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:layout_marginTop="6dp"
+                        android:text="Ready"
+                        android:textColor="@android:color/white"
+                        android:alpha="0.85" />
+
+                    <com.google.android.material.button.MaterialButton
+                        android:id="@+id/cancelSendButton"
+                        style="?attr/materialButtonOutlinedStyle"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:layout_marginTop="6dp"
+                        android:text="Cancel"
+                        android:visibility="gone" />
+
+                </LinearLayout>
 
             </LinearLayout>
-
-            </LinearLayout>
-
-
-        </LinearLayout>
-    </com.google.android.material.card.MaterialCardView>
-
-    <com.google.android.material.card.MaterialCardView
-        android:id="@+id/setupCard"
-        android:layout_width="0dp"
-        android:layout_height="wrap_content"
-        android:layout_margin="12dp"
-        app:cardCornerRadius="16dp"
-        app:cardUseCompatPadding="true"
-        app:cardBackgroundColor="#CC111111"
-        app:layout_constraintBottom_toTopOf="@id/bottomControlsCard"
-        app:layout_constraintStart_toStartOf="parent"
-        app:layout_constraintEnd_toEndOf="parent">
-
-        <LinearLayout
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:orientation="vertical"
-            android:padding="12dp">
-
-            <TextView
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:text="Capture Setup"
-                android:textColor="@android:color/white"
-                android:textStyle="bold"
-                android:textSize="16sp" />
-
-            <com.google.android.material.textfield.TextInputLayout
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:layout_marginTop="8dp"
-                app:boxBackgroundMode="outline"
-                app:boxStrokeColor="@android:color/white"
-                app:hintTextColor="@android:color/white">
-
-                <com.google.android.material.textfield.TextInputEditText
-                    android:id="@+id/doctorNameEdit"
-                    android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
-                    android:hint="Doctor name (optional)"
-                    android:textColor="@android:color/white"
-                    android:textColorHint="#CCFFFFFF" />
-            </com.google.android.material.textfield.TextInputLayout>
-
-            <com.google.android.material.textfield.TextInputLayout
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:layout_marginTop="8dp"
-                app:boxBackgroundMode="outline"
-                app:boxStrokeColor="@android:color/white"
-                app:hintTextColor="@android:color/white">
-
-                <com.google.android.material.textfield.TextInputEditText
-                    android:id="@+id/patientNameEdit"
-                    android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
-                    android:hint="Patient name (optional)"
-                    android:textColor="@android:color/white"
-                    android:textColorHint="#CCFFFFFF" />
-            </com.google.android.material.textfield.TextInputLayout>
-
-            <com.google.android.material.textfield.TextInputLayout
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:layout_marginTop="8dp"
-                app:boxBackgroundMode="outline"
-                app:boxStrokeColor="@android:color/white"
-                app:hintTextColor="@android:color/white">
-
-                <com.google.android.material.textfield.TextInputEditText
-                    android:id="@+id/patientIdEdit"
-                    android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
-                    android:hint="Patient ID (required)"
-                    android:textColor="@android:color/white"
-                    android:textColorHint="#CCFFFFFF" />
-            </com.google.android.material.textfield.TextInputLayout>
-
-            <com.google.android.material.button.MaterialButton
-                android:id="@+id/startSessionButton"
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:layout_marginTop="10dp"
-                android:text="Start Session" />
-
-            <TextView
-                android:id="@+id/manualSensorSupport"
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:layout_marginTop="10dp"
-                android:text="Manual Sensor: —"
-                android:textColor="@android:color/white"
-                android:textSize="12sp"
-                android:alpha="0.75" />
-
-            <TextView
-                android:id="@+id/manualFocusSupport"
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:text="Manual Focus Distance: —"
-                android:textColor="@android:color/white"
-                android:textSize="12sp"
-                android:alpha="0.75" />
-
-            <TextView
-                android:id="@+id/manualWhiteBalanceSupport"
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:text="AWB Lock: —"
-                android:textColor="@android:color/white"
-                android:textSize="12sp"
-                android:alpha="0.75" />
 
         </LinearLayout>
     </com.google.android.material.card.MaterialCardView>

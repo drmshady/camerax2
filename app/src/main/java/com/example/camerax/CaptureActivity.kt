@@ -125,7 +125,8 @@ class CaptureActivity : AppCompatActivity() {
             cam.cameraControl.enableTorch(isChecked)
         }
 
-        binding.startSessionButton.setOnClickListener { startSessionFromUi() }
+        // Session starts automatically from Home-provided metadata.
+        startSessionFromIntentOrExit()
 
         binding.lockButton.setOnClickListener {
             // Lock AE/AWB + optionally hold focus at the current settled distance.
@@ -164,13 +165,20 @@ class CaptureActivity : AppCompatActivity() {
         binding.markersText.text = markerDetector.latest().displayText
     }
 
-    private fun startSessionFromUi() {
-        val doctor = binding.doctorNameEdit.text?.toString()?.trim().orEmpty()
-        val patientName = binding.patientNameEdit.text?.toString()?.trim().orEmpty()
-        val patientId = binding.patientIdEdit.text?.toString()?.trim().orEmpty()
+    private fun startSessionFromIntentOrExit() {
+        if (sessionManager.isSessionActive()) return
+
+        val doctor = intent.getStringExtra(EXTRA_DOCTOR_NAME)?.trim().orEmpty()
+        val patientName = intent.getStringExtra(EXTRA_PATIENT_NAME)?.trim().orEmpty()
+        val patientId = intent.getStringExtra(EXTRA_PATIENT_ID)?.trim().orEmpty()
 
         if (patientId.isBlank()) {
-            Toast.makeText(this, "Enter Patient ID", Toast.LENGTH_SHORT).show()
+            Toast.makeText(this, "Patient ID missing. Start Capture from Home.", Toast.LENGTH_LONG).show()
+            val i = Intent(this@CaptureActivity, MainActivity::class.java).apply {
+                addFlags(Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_SINGLE_TOP)
+            }
+            startActivity(i)
+            finish()
             return
         }
 
@@ -182,7 +190,6 @@ class CaptureActivity : AppCompatActivity() {
                 patientId = patientId
             )
         )
-
         writeManifest()
         updateUi()
     }
@@ -592,10 +599,6 @@ class CaptureActivity : AppCompatActivity() {
 
     private fun updateUi() {
         val active = sessionManager.isSessionActive()
-
-        binding.setupCard.visibility = if (active) android.view.View.GONE else android.view.View.VISIBLE
-
-        binding.startSessionButton.isEnabled = !active
         binding.lockButton.isEnabled = active
         binding.captureButton.isEnabled = active
         binding.endSessionButton.isEnabled = active
@@ -772,6 +775,10 @@ class CaptureActivity : AppCompatActivity() {
     }
 
     companion object {
+        const val EXTRA_DOCTOR_NAME = "extra_doctor_name"
+        const val EXTRA_PATIENT_NAME = "extra_patient_name"
+        const val EXTRA_PATIENT_ID = "extra_patient_id"
+
         private const val TAG = "CaptureActivity"
         private const val REQUEST_CODE_PERMISSIONS = 10
 
