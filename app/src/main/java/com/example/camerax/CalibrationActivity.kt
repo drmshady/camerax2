@@ -17,7 +17,6 @@ import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.isActive
-import kotlinx.coroutines.delay
 import android.util.Log
 import android.util.Size
 import android.util.SizeF
@@ -75,20 +74,9 @@ class CalibrationActivity : AppCompatActivity() {
     private val resultStore = CaptureResultStore()
     private var cameraController: CameraController? = null
 
-    private var statusUiJob: Job? = null
-
     // Step 8 (stub)
     private val markerDetector: MarkerDetector by lazy { BoofCvAprilTag36h11Detector(this) }
     private var lastMarkerStatus: MarkerStatus = MarkerStatus()
-    private val calibrationGuidanceTracker = CalibrationGuidanceTracker(
-        distanceTargetCm = 25.0,
-        distanceMinCm = 20.0,
-        distanceMaxCm = 30.0,
-        edgeMarginFrac = 0.10,
-        goodCapturesTarget = 25,
-        gridTargetFilled = 8
-    )
-
 
     private val captureResolution = Size(1920, 1080)
 
@@ -162,7 +150,7 @@ class CalibrationActivity : AppCompatActivity() {
 
         binding.lockButton.setOnClickListener {
             // Calibration should stabilize focus to keep intrinsics more consistent.
-            cameraController?.lockForPhotogrammetry(settleMs = 1500L, stabilizeFocus = binding.lockAfCalibrationSwitch.isChecked)
+            cameraController?.lockForPhotogrammetry(settleMs = 1500L, stabilizeFocus = true)
             updateLockStatusUi()
             binding.lockButton.postDelayed({ updateLockStatusUi() }, 2500L)
         }
@@ -194,45 +182,11 @@ class CalibrationActivity : AppCompatActivity() {
         updateMarkerUi()
     }
 
-
-override fun onResume() {
-    super.onResume()
-    startStatusUiLoop()
-}
-
-override fun onPause() {
-    super.onPause()
-    statusUiJob?.cancel()
-    statusUiJob = null
-}
-
-private fun startStatusUiLoop() {
-    if (statusUiJob?.isActive == true) return
-    statusUiJob = lifecycleScope.launch {
-        while (isActive) {
-            updateLockStatusUi()
-            delay(250L) // 4 Hz; lightweight
-        }
-    }
-}
-
     private fun updateMarkerUi(status: MarkerStatus = markerDetector.latest()) {
         binding.markersText.text = status.displayText
-
-        if (status.mode == MarkerMode.OFF) {
-            binding.markerGuidanceText.text = status.guidanceText
-            return
-        }
-
-        val g = calibrationGuidanceTracker.buildLiveGuidance(status, lastQualityResult)
-
-        val lines = ArrayList<String>(3)
-        lines.add(g.message)
-        lines.add(g.progress)
-        lines.add(g.coverageText)
-        if (g.enough) lines.add("Enough ✅")
-        binding.markerGuidanceText.text = lines.joinToString("\n")
+        binding.markerGuidanceText.text = status.guidanceText
     }
+
 
     private fun buildMarkerSidecar(status: MarkerStatus): Map<String, Any?> {
         // Keep deterministic structure for reproducibility
@@ -270,9 +224,6 @@ private fun startStatusUiLoop() {
             )
         )
 
-        markerDetector.reset()
-        calibrationGuidanceTracker.resetForNewSession()
-
         writeManifest()
         updateUi()
         updateCalibrationHint()
@@ -300,11 +251,6 @@ private fun startStatusUiLoop() {
                 Toast.makeText(this, "Reframe: keep markers away from edges", Toast.LENGTH_SHORT).show()
                 return
             }
-            val dist = lastQualityResult.distanceCm
-            if (dist != null && (dist < 20.0 || dist > 30.0)) {
-                Toast.makeText(this, "Distance out of range: ${"%.1f".format(dist)} cm", Toast.LENGTH_SHORT).show()
-                return
-            }
         }
 
         val imageCapture = imageCapture ?: return
@@ -319,18 +265,6 @@ private fun startStatusUiLoop() {
             if (q.status == QualityStatus.OVER) add("OVER")
             if (q.status == QualityStatus.UNDER) add("UNDER")
         }
-
-        val markerSnapshot = GuidanceCommon.frozenFromMarkerStatus(lastMarkerStatus)
-        val qualitySnapshot = GuidanceCommon.FrozenQualitySnapshot(
-            status = q.status,
-            blurScore = q.blurScore,
-            exposureFlags = exposureFlags.toList(),
-            distanceCm = q.distanceCm
-        )
-        val markerSidecarSummary = calibrationGuidanceTracker.buildSidecarMarkerSummary(
-            markerSnapshot = markerSnapshot,
-            qualitySnapshot = qualitySnapshot
-        )
 
         val meta = ImageSidecarMetadata(
             timestampMs = tsMs,
@@ -362,13 +296,10 @@ private fun startStatusUiLoop() {
                     Toast.makeText(this@CalibrationActivity, "Saved: ${photoFile.name}", Toast.LENGTH_SHORT).show()
 
                     cameraExecutor.execute {
-                        calibrationGuidanceTracker.onCaptureSaved(
-                            markerSnapshot = markerSnapshot,
-                            qualitySnapshot = qualitySnapshot
-                        )
                         sidecarWriter.writeSidecarJson(photoFile, meta)
-                        writeManifest()
                     }
+
+                    writeManifest()
                 }
             }
         )
@@ -421,7 +352,7 @@ private fun startStatusUiLoop() {
         }
         binding.markerModeSpinner.adapter = adapter
 
-        val savedMode = markerPrefs.getString("marker_mode", "WARN") ?: "WARN"
+        val savedMode = markerPrefs.getString("marker_mode", "OFF") ?: "OFF"
         val modeIndex = modes.indexOf(savedMode).let { if (it < 0) 0 else it }
         binding.markerModeSpinner.setSelection(modeIndex)
 
@@ -774,10 +705,10 @@ private fun startStatusUiLoop() {
     private fun writeManifest() {
         val sessionInfo = sessionManager.getSessionInfo().toMutableMap()
         sessionInfo["chosenResolution"] = "${captureResolution.width}x${captureResolution.height}"
+        // Lens identity (important for intrinsics calibration)
+        LensIdentityUtil.appendLensIdentity(sessionInfo, this, currentCameraId, currentCameraCharacteristics)
         sessionInfo["markerSystem"] = buildMarkerSystem()
-        val markerSummary = markerDetector.sessionSummaryMap()
-        sessionInfo["markerSummary"] = markerSummary
-        sessionInfo["calibrationGuidanceSummary"] = calibrationGuidanceTracker.buildManifestSummary()
+        sessionInfo["markerSummary"] = markerDetector.sessionSummaryMap()
         manifestWriter.writeManifest(sessionInfo, sessionManager.getSessionDirectory())
     }
 
@@ -919,16 +850,9 @@ private fun startStatusUiLoop() {
 
     private fun updateLockStatusUi() {
         val snap = resultStore.snapshot()
-
-        val afStateName = CameraStatusFormatter.formatAfState(snap.afState)
-        val fdText = CameraStatusFormatter.formatFocusDistance(snap.focusDistanceDiopters)
-
-        binding.afLockStatus.text =
-            "AF: ${cameraController?.afStatus ?: "—"} | $afStateName | $fdText"
-        binding.aeLockStatus.text =
-            "AE: ${cameraController?.aeStatus ?: "—"} | state=${snap.aeState ?: "—"} | ISO=${snap.iso ?: "—"}"
-        binding.awbLockStatus.text =
-            "WB: ${cameraController?.wbStatus ?: "—"} | state=${snap.awbState ?: "—"}"
+        binding.afLockStatus.text = "AF: ${cameraController?.afStatus ?: "—"} | state=${snap.afState ?: "—"} | fd=${snap.focusDistanceDiopters?.let { String.format("%.2fD", it) } ?: "—"}"
+        binding.aeLockStatus.text = "AE: ${cameraController?.aeStatus ?: "—"} | state=${snap.aeState ?: "—"} | ISO=${snap.iso ?: "—"}"
+        binding.awbLockStatus.text = "WB: ${cameraController?.wbStatus ?: "—"} | state=${snap.awbState ?: "—"}"
     }
 
     private fun updateQualityUi(result: QualityResult) {
