@@ -17,6 +17,7 @@ import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.isActive
+import kotlinx.coroutines.delay
 import android.util.Log
 import android.util.Size
 import android.util.SizeF
@@ -73,6 +74,8 @@ class CalibrationActivity : AppCompatActivity() {
 
     private val resultStore = CaptureResultStore()
     private var cameraController: CameraController? = null
+
+    private var statusUiJob: Job? = null
 
     // Step 8 (stub)
     private val markerDetector: MarkerDetector by lazy { BoofCvAprilTag36h11Detector(this) }
@@ -159,7 +162,7 @@ class CalibrationActivity : AppCompatActivity() {
 
         binding.lockButton.setOnClickListener {
             // Calibration should stabilize focus to keep intrinsics more consistent.
-            cameraController?.lockForPhotogrammetry(settleMs = 1500L, stabilizeFocus = true)
+            cameraController?.lockForPhotogrammetry(settleMs = 1500L, stabilizeFocus = binding.lockAfCalibrationSwitch.isChecked)
             updateLockStatusUi()
             binding.lockButton.postDelayed({ updateLockStatusUi() }, 2500L)
         }
@@ -190,6 +193,28 @@ class CalibrationActivity : AppCompatActivity() {
         updateCalibrationHint()
         updateMarkerUi()
     }
+
+
+override fun onResume() {
+    super.onResume()
+    startStatusUiLoop()
+}
+
+override fun onPause() {
+    super.onPause()
+    statusUiJob?.cancel()
+    statusUiJob = null
+}
+
+private fun startStatusUiLoop() {
+    if (statusUiJob?.isActive == true) return
+    statusUiJob = lifecycleScope.launch {
+        while (isActive) {
+            updateLockStatusUi()
+            delay(250L) // 4 Hz; lightweight
+        }
+    }
+}
 
     private fun updateMarkerUi(status: MarkerStatus = markerDetector.latest()) {
         binding.markersText.text = status.displayText
@@ -894,9 +919,16 @@ class CalibrationActivity : AppCompatActivity() {
 
     private fun updateLockStatusUi() {
         val snap = resultStore.snapshot()
-        binding.afLockStatus.text = "AF: ${cameraController?.afStatus ?: "—"} | state=${snap.afState ?: "—"} | fd=${snap.focusDistanceDiopters?.let { String.format("%.2fD", it) } ?: "—"}"
-        binding.aeLockStatus.text = "AE: ${cameraController?.aeStatus ?: "—"} | state=${snap.aeState ?: "—"} | ISO=${snap.iso ?: "—"}"
-        binding.awbLockStatus.text = "WB: ${cameraController?.wbStatus ?: "—"} | state=${snap.awbState ?: "—"}"
+
+        val afStateName = CameraStatusFormatter.formatAfState(snap.afState)
+        val fdText = CameraStatusFormatter.formatFocusDistance(snap.focusDistanceDiopters)
+
+        binding.afLockStatus.text =
+            "AF: ${cameraController?.afStatus ?: "—"} | $afStateName | $fdText"
+        binding.aeLockStatus.text =
+            "AE: ${cameraController?.aeStatus ?: "—"} | state=${snap.aeState ?: "—"} | ISO=${snap.iso ?: "—"}"
+        binding.awbLockStatus.text =
+            "WB: ${cameraController?.wbStatus ?: "—"} | state=${snap.awbState ?: "—"}"
     }
 
     private fun updateQualityUi(result: QualityResult) {
