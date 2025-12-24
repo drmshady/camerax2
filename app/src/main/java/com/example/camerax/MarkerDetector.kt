@@ -13,6 +13,9 @@ import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.atomic.AtomicReference
 import kotlin.math.max
 
+/** Factory so existing code can call MarkerDetector(context). */
+fun MarkerDetector(context: Context): MarkerDetector = BoofCvAprilTag36h11Detector(context)
+
 enum class MarkerMode { OFF, WARN, BLOCK }
 
 data class TagDetection(
@@ -24,7 +27,7 @@ data class TagDetection(
 )
 
 data class MarkerStatus(
-    val timestampNs: Long = 0L,
+val timestampNs: Long = 0L,
     val mode: MarkerMode = MarkerMode.OFF,
     val frameWidth: Int = 0,
     val frameHeight: Int = 0,
@@ -37,7 +40,30 @@ data class MarkerStatus(
     val framingOk: Boolean = true,
     val guidanceText: String = "Marker detection: OFF",
     val displayText: String = "Marker detection: OFF"
-)
+) {
+    // Keep existing UI contract used by Activities
+    val uiText: String get() = displayText
+
+    // Keep existing sidecar contract used by ImageSidecarWriter
+    val sidecarMap: Map<String, Any?> get() = linkedMapOf(
+        "timestampNs" to timestampNs,
+        "mode" to mode.name,
+        "frameWidth" to frameWidth,
+        "frameHeight" to frameHeight,
+        "detectedCount" to detectedCount,
+        "detectedIds" to detectedIds,
+        "requiredIds" to requiredIds,
+        "missingRequiredIds" to missingRequiredIds,
+        "allRequiredVisible" to allRequiredVisible,
+        "framingOk" to framingOk,
+        "displayText" to displayText,
+        "guidanceText" to guidanceText
+    )
+
+    companion object {
+        fun default(): MarkerStatus = MarkerStatus()
+    }
+}
 
 /**
  * Marker detector for Phase 1.5 (HUD guidance).
@@ -62,6 +88,21 @@ interface MarkerDetector {
 
     /** Summary aggregated across frames (reset per session). */
     fun sessionSummaryMap(): Map<String, Any?>
+
+    /** Map describing marker system for manifests (keeps Phase 2 format stable). */
+    fun markerSystemMap(): Map<String, Any?> {
+        val base = linkedMapOf<String, Any?>(
+            "family" to "apriltag_36h11",
+            "impl" to "boofcv_square_hamming"
+        )
+        // Merge session summary (counts, etc.) if provided
+        try {
+            base.putAll(sessionSummaryMap())
+        } catch (_: Throwable) {
+        }
+        return base
+    }
+
 }
 
 class BoofCvAprilTag36h11Detector(
