@@ -25,7 +25,7 @@ class QualityAnalyzer(
     private val overThresh: Double = 0.02,
     private val underThresh: Double = 0.02,
     private val markerDetector: MarkerDetector? = null,
-    private val onMarkerResult: ((MarkerStatus) -> Unit)? = null,
+    private val onMarkerResult: ((MarkerStatus, ImageProxy?) -> Unit)? = null,
     private val onResult: (QualityResult) -> Unit
 ) : ImageAnalysis.Analyzer {
 
@@ -125,7 +125,7 @@ class QualityAnalyzer(
             )
         } finally {
             markerDetector?.process(image)
-            onMarkerResult?.invoke(markerDetector!!.latest())
+            onMarkerResult?.invoke(markerDetector!!.latest(), image)
             image.close()
         }
     }

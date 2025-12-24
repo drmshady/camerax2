@@ -103,6 +103,9 @@ class CameraController(
             .setCaptureRequestOption(CaptureRequest.CONTROL_AWB_LOCK, false)
             // AF
             .setCaptureRequestOption(CaptureRequest.CONTROL_AF_MODE, CameraMetadata.CONTROL_AF_MODE_CONTINUOUS_PICTURE)
+            // Stabilization: OIS ON, EIS OFF (deterministic for still JPEGs)
+            .setCaptureRequestOption(CaptureRequest.LENS_OPTICAL_STABILIZATION_MODE, CameraMetadata.LENS_OPTICAL_STABILIZATION_MODE_ON)
+            .setCaptureRequestOption(CaptureRequest.CONTROL_VIDEO_STABILIZATION_MODE, CameraMetadata.CONTROL_VIDEO_STABILIZATION_MODE_OFF)
 
         return camera2.addCaptureRequestOptions(b.build())
     }
@@ -134,6 +137,9 @@ class CameraController(
         val canManualFocusDistance = minFocus > 0f && focusDistanceDiopters != null
 
         val b = CaptureRequestOptions.Builder()
+            // Stabilization: OIS ON, EIS OFF (deterministic for still JPEGs)
+            .setCaptureRequestOption(CaptureRequest.LENS_OPTICAL_STABILIZATION_MODE, CameraMetadata.LENS_OPTICAL_STABILIZATION_MODE_ON)
+            .setCaptureRequestOption(CaptureRequest.CONTROL_VIDEO_STABILIZATION_MODE, CameraMetadata.CONTROL_VIDEO_STABILIZATION_MODE_OFF)
 
         return if (canManualFocusDistance) {
             val clamped = focusDistanceDiopters!!.coerceIn(0f, minFocus)
@@ -156,6 +162,9 @@ class CameraController(
 
     private fun applyExposureAndWbLock(autoShutterNs: Long?, autoIso: Int?): ListenableFuture<Void> {
         val b = CaptureRequestOptions.Builder()
+            // Stabilization: OIS ON, EIS OFF (deterministic for still JPEGs)
+            .setCaptureRequestOption(CaptureRequest.LENS_OPTICAL_STABILIZATION_MODE, CameraMetadata.LENS_OPTICAL_STABILIZATION_MODE_ON)
+            .setCaptureRequestOption(CaptureRequest.CONTROL_VIDEO_STABILIZATION_MODE, CameraMetadata.CONTROL_VIDEO_STABILIZATION_MODE_OFF)
 
         val exposureRange = characteristics.get(CameraCharacteristics.SENSOR_INFO_EXPOSURE_TIME_RANGE)
         val isoRange = characteristics.get(CameraCharacteristics.SENSOR_INFO_SENSITIVITY_RANGE)

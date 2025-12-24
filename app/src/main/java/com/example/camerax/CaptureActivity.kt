@@ -20,6 +20,7 @@ import kotlinx.coroutines.isActive
 import android.util.Log
 import android.util.Size
 import android.util.SizeF
+import android.view.Surface
 import android.widget.Toast
 import android.widget.ArrayAdapter
 import android.widget.AdapterView
@@ -34,6 +35,7 @@ import androidx.camera.core.CameraSelector
 import androidx.camera.core.ImageAnalysis
 import androidx.camera.core.ImageCapture
 import androidx.camera.core.ImageCaptureException
+import androidx.camera.core.ImageProxy
 import androidx.camera.core.Preview
 import androidx.camera.lifecycle.ProcessCameraProvider
 import androidx.core.app.ActivityCompat
@@ -180,8 +182,11 @@ class CaptureActivity : AppCompatActivity() {
         updateMarkerUi()
     }
 
-    private fun updateMarkerUi(status: MarkerStatus = markerDetector.latest()) {
+    private fun updateMarkerUi(status: MarkerStatus = markerDetector.latest(), imageProxy: ImageProxy? = null) {
         binding.markersText.text = status.displayText
+
+        // Update overlay with mapped marker coordinates
+        binding.markerOverlay.updateMarkers(status, imageProxy)
 
         // Keep preview area clean: guidance is text-only.
         // If marker detection is OFF, show the existing OFF message.
@@ -289,6 +294,26 @@ class CaptureActivity : AppCompatActivity() {
         val cap = resultStore.snapshot()
         val q = lastQualityResult
 
+        // Capture device rotation at time of capture (0/90/180/270)
+        val deviceRotationDegrees = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+            when (display?.rotation) {
+                Surface.ROTATION_0 -> 0
+                Surface.ROTATION_90 -> 90
+                Surface.ROTATION_180 -> 180
+                Surface.ROTATION_270 -> 270
+                else -> 0
+            }
+        } else {
+            @Suppress("DEPRECATION")
+            when (windowManager.defaultDisplay.rotation) {
+                Surface.ROTATION_0 -> 0
+                Surface.ROTATION_90 -> 90
+                Surface.ROTATION_180 -> 180
+                Surface.ROTATION_270 -> 270
+                else -> 0
+            }
+        }
+
         val exposureFlags = mutableListOf<String>().apply {
             if (q.status == QualityStatus.OVER) add("OVER")
             if (q.status == QualityStatus.UNDER) add("UNDER")
@@ -326,7 +351,8 @@ class CaptureActivity : AppCompatActivity() {
             doctorName = sessionManager.getSessionMeta()?.doctorName,
             patientName = sessionManager.getSessionMeta()?.patientName,
             patientId = sessionManager.getSessionMeta()?.patientId,
-            markerSummary = buildMarkerSidecar(lastMarkerStatus)
+            markerSummary = buildMarkerSidecar(lastMarkerStatus),
+            deviceRotationDegrees = deviceRotationDegrees
         )
 
         imageCapture.takePicture(
@@ -347,7 +373,22 @@ class CaptureActivity : AppCompatActivity() {
                             qualitySnapshot = qualitySnapshot,
                             markerSessionSummary = markerSessionSummaryAtCapture
                         )
+                        
+                        // Write initial sidecar with capture metadata
                         sidecarWriter.writeSidecarJson(photoFile, meta)
+                        
+                        // Update sidecar with image metadata from saved JPEG
+                        // (adds savedWidth, savedHeight, exifOrientation, rotationDegreesApplied, etc.)
+                        sidecarWriter.updateSidecarWithImageMetadata(photoFile, deviceRotationDegrees)
+                        
+                        // Update manifest with image metadata
+                        // (adds savedImageSize, savedImageResolution, intrinsicsKey, imageSizesSeen, etc.)
+                        manifestWriter.updateManifestWithImageMetadata(
+                            sessionManager.getSessionDirectory(),
+                            photoFile,
+                            deviceRotationDegrees
+                        )
+                        
                         writeManifest()
                     }
                 }
@@ -839,9 +880,9 @@ class CaptureActivity : AppCompatActivity() {
                     resultStore = resultStore,
                     targetFps = 12,
                     markerDetector = markerDetector,
-                    onMarkerResult = { status ->
+                    onMarkerResult = { status, imageProxy ->
                         lastMarkerStatus = status
-                        runOnUiThread { updateMarkerUi(status) }
+                        runOnUiThread { updateMarkerUi(status, imageProxy) }
                     },
                     onResult = { result -> runOnUiThread { updateQualityUi(result) } }
                 )
