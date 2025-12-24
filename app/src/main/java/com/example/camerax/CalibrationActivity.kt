@@ -150,7 +150,7 @@ class CalibrationActivity : AppCompatActivity() {
 
         binding.lockButton.setOnClickListener {
             // Calibration should stabilize focus to keep intrinsics more consistent.
-            cameraController?.lockForPhotogrammetry(settleMs = 1500L, stabilizeFocus = true)
+            cameraController?.lockForPhotogrammetry(settleMs = 1500L)
             updateLockStatusUi()
             binding.lockButton.postDelayed({ updateLockStatusUi() }, 2500L)
         }
@@ -169,17 +169,7 @@ class CalibrationActivity : AppCompatActivity() {
 
         binding.exportSessionButton.setOnClickListener { exportSession() }
 
-        binding.exportSessionButton.setOnLongClickListener {
-            openExportBrowserForExistingZips()
-            true
-        }
-
         binding.sendSessionButton.setOnClickListener { startUpload() }
-
-        binding.sendSessionButton.setOnLongClickListener {
-            openExportBrowserForExistingZips()
-            true
-        }
         binding.cancelSendButton.setOnClickListener { cancelUpload() }
 
         if (allPermissionsGranted()) startCamera()
@@ -732,10 +722,10 @@ class CalibrationActivity : AppCompatActivity() {
 
         updateCaptureEnabled()
         updateExportEnabled()
-        updateTransferEnabled()
+        updateSendEnabled()
     }
 
-    private fun updateTransferEnabled() {
+    private fun updateSendEnabled() {
         // Require a completed (ended) session for deterministic transfer
         val canSend = sessionManager.hasSession() && !sessionManager.isSessionActive() && !isExporting && !isUploading
         binding.sendSessionButton.isEnabled = canSend
@@ -774,7 +764,7 @@ class CalibrationActivity : AppCompatActivity() {
                 .setSessionCaptureCallback(resultStore.sessionCallback)
 
             val preview = previewBuilder.build().also {
-                it.setSurfaceProvider(binding.viewFinder.surfaceProvider)
+                it.surfaceProvider = binding.viewFinder.surfaceProvider
             }
 
             val imageCaptureBuilder = ImageCapture.Builder()
@@ -872,6 +862,8 @@ class CalibrationActivity : AppCompatActivity() {
             QualityStatus.BLUR -> "⚠️ BLUR"
             QualityStatus.OVER -> "⚠️ OVER"
             QualityStatus.UNDER -> if (!binding.torchSwitch.isChecked) "⚠️ UNDER (Torch?)" else "⚠️ UNDER"
+            QualityStatus.SPECULAR -> "⚠️ Reflection (Adjust Angle)"
+            else -> ""
         }
 
         binding.distanceText.text =
@@ -945,98 +937,5 @@ class CalibrationActivity : AppCompatActivity() {
                 add(Manifest.permission.WRITE_EXTERNAL_STORAGE)
             }
         }.toTypedArray()
-    }
-    private fun openExportBrowserForExistingZips() {
-        val baseDir = getExternalFilesDir(null) ?: filesDir
-        val exportRoot = java.io.File(baseDir, "shared/export").apply { mkdirs() }
-        ExportBrowser.show(
-            activity = this,
-            exportRoot = exportRoot
-        ) { zipFile ->
-            startUploadExistingZip(zipFile)
-        }
-    }
-
-    private fun startUploadExistingZip(zipFile: java.io.File) {
-        if (isUploading) return
-        val cfg = persistTransferInputs() ?: return
-        if (!isWifiConnected()) {
-            android.widget.Toast.makeText(this, "Wi‑Fi not connected.", android.widget.Toast.LENGTH_SHORT).show()
-            return
-        }
-
-        val (ip, port) = cfg
-        val url = "http://$ip:$port/upload"
-
-        isUploading = true
-        lastUploadPercent = -1
-        lastUploadUiUpdateMs = 0L
-        binding.sendProgressBar.progress = 0
-        binding.sendProgressBar.visibility = android.view.View.VISIBLE
-        binding.cancelSendButton.visibility = android.view.View.VISIBLE
-        binding.sendStatusText.text = "Hashing…"
-        updateUi()
-
-        uploadJob = lifecycleScope.launch {
-            try {
-                val totalBytes = zipFile.length()
-                val sha256 = withContext(kotlinx.coroutines.Dispatchers.IO) {
-                    SessionUploader.computeSha256(zipFile) { isActive }
-                }
-                val inferredType = ExportBrowser.inferSessionType(zipFile)
-
-                val meta = SessionUploader.UploadMeta(
-                    sessionType = inferredType.name,
-                    sessionName = zipFile.name.removeSuffix(".zip"),
-                    zipFileName = zipFile.name,
-                    fileSize = totalBytes,
-                    sha256 = sha256
-                )
-
-                binding.sendStatusText.text = "Uploading…"
-                val result = sessionUploader.upload(
-                    url = url,
-                    zipFile = zipFile,
-                    meta = meta
-                ) { sent, total ->
-                    val pct = if (total > 0L) ((sent * 100L) / total).toInt() else 0
-                    val now = System.currentTimeMillis()
-                    if (pct != lastUploadPercent && (now - lastUploadUiUpdateMs) > 120L) {
-                        lastUploadPercent = pct
-                        lastUploadUiUpdateMs = now
-                        runOnUiThread {
-                            binding.sendProgressBar.progress = pct.coerceIn(0, 100)
-                            binding.sendStatusText.text = "Uploading… $pct%"
-                        }
-                    }
-                }
-
-                if (result.success) {
-                    withContext(kotlinx.coroutines.Dispatchers.IO) {
-                        SessionUploader.markSessionSent(
-                            context = this@CalibrationActivity,
-                            meta = meta,
-                            url = url,
-                            response = result.responseBody,
-                            httpCode = result.httpCode
-                        )
-                    }
-                    android.widget.Toast.makeText(this@CalibrationActivity, "Sent: " + zipFile.name, android.widget.Toast.LENGTH_SHORT).show()
-                    binding.sendStatusText.text = "Done"
-                } else {
-                    android.widget.Toast.makeText(this@CalibrationActivity, "Send failed: " + (result.errorMessage ?: result.httpCode.toString()), android.widget.Toast.LENGTH_LONG).show()
-                    binding.sendStatusText.text = "Failed"
-                }
-            } catch (t: Throwable) {
-                android.util.Log.e(TAG, "startUploadExistingZip crashed: " + t.message, t)
-                android.widget.Toast.makeText(this@CalibrationActivity, "Send error: " + (t.message ?: "unknown"), android.widget.Toast.LENGTH_LONG).show()
-                binding.sendStatusText.text = "Error"
-            } finally {
-                isUploading = false
-                binding.sendProgressBar.visibility = android.view.View.GONE
-                binding.cancelSendButton.visibility = android.view.View.GONE
-                updateUi()
-            }
-        }
     }
 }

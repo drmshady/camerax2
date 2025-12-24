@@ -101,4 +101,27 @@ object LensIdentityUtil {
             else -> "main"
         }
     }
+
+    fun buildIntrinsicsKey(
+        model: String,
+        lens: String?,
+        imageWidth: Int?,
+        imageHeight: Int?
+    ): String {
+        val cleanModel = sanitizeForKey(model)
+        val cleanLens = sanitizeForKey(lens ?: "unknown")
+        val w = imageWidth ?: 0
+        val h = imageHeight ?: 0
+        return "${cleanModel}_${cleanLens}_${w}x${h}"
+    }
+
+    private fun sanitizeForKey(s: String): String {
+        // Avoid unsupported escape sequences by using raw regex strings.
+        return s.trim()
+            .replace(Regex("""\s+"""), "_")
+            .replace(Regex("""[^A-Za-z0-9_-]"""), "_")
+            .trim('_')
+            .ifEmpty { "unknown" }
+    }
+
 }

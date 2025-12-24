@@ -1,6 +1,9 @@
 package com.example.camerax
 
 import android.util.Log
+import org.json.JSONArray
+import org.json.JSONObject
+import org.json.JSONTokener
 import java.io.File
 import java.time.Instant
 import java.util.Locale
@@ -8,6 +11,10 @@ import java.util.Locale
 data class ImageSidecarMetadata(
     val timestampMs: Long,
     val filename: String,
+    // actual saved image size (best-effort). Used for intrinsics reuse.
+    val imageSize: List<Int>? = null,
+    // stable key for selecting intrinsics calibration on PC
+    val intrinsicsKey: String? = null,
     val iso: Int?,
     val shutterNs: Long?,
     val focusDistanceDiopters: Float?,
@@ -27,11 +34,26 @@ data class ImageSidecarMetadata(
     val calibrationTargetDistanceCm: Int? = null,
 
     // Phase 1.5 markers (optional)
-    val markerSummary: Any? = null
+    val markerSummary: Any? = null,
+
+    // ---- NEW: truth fields (merge into existing JSON) ----
+    val savedWidth: Int? = null,
+    val savedHeight: Int? = null,
+    val exifOrientation: Int? = null,          // EXIF tag value 1..8
+    val deviceRotationDegrees: Int? = null,    // 0/90/180/270 at capture time
+    val rotationDegreesApplied: Int? = null    // pixel-rotation applied by app (usually 0)
 ) {
     val timestampIso: String = Instant.ofEpochMilli(timestampMs).toString()
 }
 
+/**
+ * Writes per-image sidecar JSON without deleting unknown keys.
+ *
+ * - Reads existing JSON if present.
+ * - Updates/overwrites known keys (timestamp, ISO, etc.) with current values.
+ * - Preserves any other keys that might have been added by other modules.
+ * - Writes via tmp + replace to avoid partial files.
+ */
 class ImageSidecarWriter {
 
     fun writeSidecarJson(imageFile: File, meta: ImageSidecarMetadata) {
@@ -39,13 +61,67 @@ class ImageSidecarWriter {
         val tmpFile = File(imageFile.parentFile, imageFile.nameWithoutExtension + ".json.tmp")
 
         try {
-            val text = buildJson(meta)
-            tmpFile.writeText(text, Charsets.UTF_8)
+            val root = readExistingJson(jsonFile)
 
-            if (jsonFile.exists()) jsonFile.delete()
+            // Core fields
+            root.put("timestampMs", meta.timestampMs)
+            root.put("timestampIso", meta.timestampIso)
+            root.put("filename", meta.filename)
+
+            // Keep legacy key name used by existing PC scripts
+            if (meta.imageSize != null) root.put("image_size", JSONArray(meta.imageSize)) else root.put("image_size", JSONObject.NULL)
+            if (meta.intrinsicsKey != null) root.put("intrinsicsKey", meta.intrinsicsKey) else root.put("intrinsicsKey", JSONObject.NULL)
+
+            // Camera values
+            if (meta.iso != null) root.put("ISO", meta.iso) else root.put("ISO", JSONObject.NULL)
+            if (meta.shutterNs != null) root.put("shutterNs", meta.shutterNs) else root.put("shutterNs", JSONObject.NULL)
+            if (meta.focusDistanceDiopters != null) {
+                root.put("focusDistanceDiopters", String.format(Locale.US, "%.6f", meta.focusDistanceDiopters).toDouble())
+            } else {
+                root.put("focusDistanceDiopters", JSONObject.NULL)
+            }
+            if (meta.distanceEstimateCm != null) {
+                root.put("distanceEstimateCm", String.format(Locale.US, "%.6f", meta.distanceEstimateCm).toDouble())
+            } else {
+                root.put("distanceEstimateCm", JSONObject.NULL)
+            }
+            root.put("blurScore", String.format(Locale.US, "%.6f", meta.blurScore).toDouble())
+
+            root.put("exposureFlags", JSONArray(meta.exposureFlags))
+            root.put("qualityStatus", meta.qualityStatus)
+            root.put("lockModeUsed", meta.lockModeUsed)
+            root.put("torchState", meta.torchState)
+
+            // Session context
+            root.put("sessionType", meta.sessionType)
+            root.put("sessionName", meta.sessionName)
+
+            putNullableString(root, "doctorName", meta.doctorName)
+            putNullableString(root, "patientName", meta.patientName)
+            putNullableString(root, "patientId", meta.patientId)
+
+            if (meta.calibrationTargetDistanceCm != null) root.put("calibrationTargetDistanceCm", meta.calibrationTargetDistanceCm)
+            else root.put("calibrationTargetDistanceCm", JSONObject.NULL)
+
+            // Markers (Any -> JSON)
+            root.put("markerSummary", toJsonValue(meta.markerSummary))
+
+            // ---- NEW truth fields ----
+            if (meta.savedWidth != null) root.put("savedWidth", meta.savedWidth) else root.put("savedWidth", JSONObject.NULL)
+            if (meta.savedHeight != null) root.put("savedHeight", meta.savedHeight) else root.put("savedHeight", JSONObject.NULL)
+            if (meta.exifOrientation != null) root.put("exifOrientation", meta.exifOrientation) else root.put("exifOrientation", JSONObject.NULL)
+            if (meta.deviceRotationDegrees != null) root.put("deviceRotationDegrees", meta.deviceRotationDegrees) else root.put("deviceRotationDegrees", JSONObject.NULL)
+            if (meta.rotationDegreesApplied != null) root.put("rotationDegreesApplied", meta.rotationDegreesApplied) else root.put("rotationDegreesApplied", JSONObject.NULL)
+
+            val out = root.toString(2)
+            tmpFile.writeText(out, Charsets.UTF_8)
+
+            if (jsonFile.exists()) {
+                try { jsonFile.delete() } catch (_: Throwable) {}
+            }
             if (!tmpFile.renameTo(jsonFile)) {
-                jsonFile.writeText(text, Charsets.UTF_8)
-                tmpFile.delete()
+                jsonFile.writeText(out, Charsets.UTF_8)
+                try { tmpFile.delete() } catch (_: Throwable) {}
             }
         } catch (t: Throwable) {
             Log.e(TAG, "Failed writing sidecar for ${imageFile.name}: ${t.message}", t)
@@ -53,149 +129,52 @@ class ImageSidecarWriter {
         }
     }
 
-    private fun buildJson(m: ImageSidecarMetadata): String {
-        val sb = StringBuilder(1200)
-        sb.append("{\n")
-
-        kvLong(sb, "timestampMs", m.timestampMs, comma = true)
-        kvString(sb, "timestampIso", m.timestampIso, comma = true)
-        kvString(sb, "filename", m.filename, comma = true)
-
-        kvInt(sb, "ISO", m.iso, comma = true)
-        kvLongNullable(sb, "shutterNs", m.shutterNs, comma = true)
-        kvFloat(sb, "focusDistanceDiopters", m.focusDistanceDiopters, comma = true)
-        kvDouble(sb, "distanceEstimateCm", m.distanceEstimateCm, comma = true)
-        kvDoubleNonNull(sb, "blurScore", m.blurScore, comma = true)
-
-        array(sb, "exposureFlags", m.exposureFlags, comma = true)
-        kvString(sb, "qualityStatus", m.qualityStatus, comma = true)
-        kvString(sb, "lockModeUsed", m.lockModeUsed, comma = true)
-        kvString(sb, "torchState", m.torchState, comma = true)
-
-        kvString(sb, "sessionType", m.sessionType, comma = true)
-        kvString(sb, "sessionName", m.sessionName, comma = true)
-
-        // optional clinical info (null for calibration)
-        kvNullableString(sb, "doctorName", m.doctorName, comma = true)
-        kvNullableString(sb, "patientName", m.patientName, comma = true)
-        kvNullableString(sb, "patientId", m.patientId, comma = true)
-
-        kvInt(sb, "calibrationTargetDistanceCm", m.calibrationTargetDistanceCm, comma = true)
-        kvAny(sb, "markerSummary", m.markerSummary, comma = false)
-
-        sb.append("\n}")
-        return sb.toString()
+    private fun readExistingJson(jsonFile: File): JSONObject {
+        if (!jsonFile.exists()) return JSONObject()
+        return try {
+            val txt = jsonFile.readText(Charsets.UTF_8)
+            val v = JSONTokener(txt).nextValue()
+            if (v is JSONObject) v else JSONObject()
+        } catch (_: Throwable) {
+            JSONObject()
+        }
     }
 
-
-    private fun kvAny(sb: StringBuilder, key: String, value: Any?, comma: Boolean) {
-        sb.append("  \"").append(esc(key)).append("\": ")
-        writeAny(sb, value, indent = "  ")
-        if (comma) sb.append(",")
-        sb.append("\n")
+    private fun putNullableString(o: JSONObject, key: String, value: String?) {
+        if (value == null) o.put(key, JSONObject.NULL) else o.put(key, value)
     }
 
-    private fun writeAny(sb: StringBuilder, value: Any?, indent: String) {
-        when (value) {
-            null -> sb.append("null")
-            is String -> sb.append("\"").append(esc(value)).append("\"")
-            is Boolean, is Int, is Long, is Double, is Float -> sb.append(value.toString())
+    private fun toJsonValue(value: Any?): Any {
+        return when (value) {
+            null -> JSONObject.NULL
+            is JSONObject, is JSONArray -> value
+            is String, is Boolean, is Int, is Long -> value
+            is Float -> String.format(Locale.US, "%.6f", value).toDouble()
+            is Double -> {
+                if (value.isNaN() || value.isInfinite()) JSONObject.NULL
+                else String.format(Locale.US, "%.6f", value).toDouble()
+            }
             is Map<*, *> -> {
-                sb.append("{\n")
-                val entries = value.entries.toList()
-                for ((i, e) in entries.withIndex()) {
-                    val k = e.key?.toString() ?: "null"
-                    sb.append(indent).append("  \"").append(esc(k)).append("\": ")
-                    writeAny(sb, e.value, indent + "  ")
-                    if (i != entries.size - 1) sb.append(",")
-                    sb.append("\n")
+                val obj = JSONObject()
+                for ((k, v) in value.entries) {
+                    if (k == null) continue
+                    obj.put(k.toString(), toJsonValue(v))
                 }
-                sb.append(indent).append("}")
+                obj
             }
-            is List<*> -> {
-                sb.append("[")
-                for (i in value.indices) {
-                    if (i > 0) sb.append(", ")
-                    writeAny(sb, value[i], indent)
-                }
-                sb.append("]")
+            is Iterable<*> -> {
+                val arr = JSONArray()
+                for (x in value) arr.put(toJsonValue(x))
+                arr
             }
-            else -> sb.append("\"").append(esc(value.toString())).append("\"")
+            is Array<*> -> {
+                val arr = JSONArray()
+                for (x in value) arr.put(toJsonValue(x))
+                arr
+            }
+            else -> value.toString()
         }
     }
-
-    // ---- Writers (unique JVM signatures) ----
-
-    private fun kvString(sb: StringBuilder, key: String, value: String, comma: Boolean) {
-        sb.append("  \"").append(esc(key)).append("\": \"").append(esc(value)).append("\"")
-        if (comma) sb.append(",")
-        sb.append("\n")
-    }
-
-    private fun kvNullableString(sb: StringBuilder, key: String, value: String?, comma: Boolean) {
-        sb.append("  \"").append(esc(key)).append("\": ")
-        if (value == null) sb.append("null")
-        else sb.append("\"").append(esc(value)).append("\"")
-        if (comma) sb.append(",")
-        sb.append("\n")
-    }
-
-    private fun kvInt(sb: StringBuilder, key: String, value: Int?, comma: Boolean) {
-        sb.append("  \"").append(esc(key)).append("\": ").append(value?.toString() ?: "null")
-        if (comma) sb.append(",")
-        sb.append("\n")
-    }
-
-    private fun kvLongNullable(sb: StringBuilder, key: String, value: Long?, comma: Boolean) {
-        sb.append("  \"").append(esc(key)).append("\": ").append(value?.toString() ?: "null")
-        if (comma) sb.append(",")
-        sb.append("\n")
-    }
-
-    private fun kvLong(sb: StringBuilder, key: String, value: Long, comma: Boolean) {
-        sb.append("  \"").append(esc(key)).append("\": ").append(value)
-        if (comma) sb.append(",")
-        sb.append("\n")
-    }
-
-    private fun kvFloat(sb: StringBuilder, key: String, value: Float?, comma: Boolean) {
-        sb.append("  \"").append(esc(key)).append("\": ")
-        sb.append(value?.let { String.format(Locale.US, "%.6f", it) } ?: "null")
-        if (comma) sb.append(",")
-        sb.append("\n")
-    }
-
-    private fun kvDouble(sb: StringBuilder, key: String, value: Double?, comma: Boolean) {
-        sb.append("  \"").append(esc(key)).append("\": ")
-        sb.append(value?.let { String.format(Locale.US, "%.6f", it) } ?: "null")
-        if (comma) sb.append(",")
-        sb.append("\n")
-    }
-
-    private fun kvDoubleNonNull(sb: StringBuilder, key: String, value: Double, comma: Boolean) {
-        sb.append("  \"").append(esc(key)).append("\": ")
-        sb.append(String.format(Locale.US, "%.6f", value))
-        if (comma) sb.append(",")
-        sb.append("\n")
-    }
-
-    private fun array(sb: StringBuilder, key: String, values: List<String>, comma: Boolean) {
-        sb.append("  \"").append(esc(key)).append("\": [")
-        values.forEachIndexed { i, v ->
-            if (i > 0) sb.append(", ")
-            sb.append("\"").append(esc(v)).append("\"")
-        }
-        sb.append("]")
-        if (comma) sb.append(",")
-        sb.append("\n")
-    }
-
-    private fun esc(s: String): String =
-        s.replace("\\", "\\\\")
-            .replace("\"", "\\\"")
-            .replace("\n", "\\n")
-            .replace("\r", "\\r")
-            .replace("\t", "\\t")
 
     private companion object {
         private const val TAG = "ImageSidecarWriter"
